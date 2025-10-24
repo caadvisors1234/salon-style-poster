@@ -68,7 +68,7 @@ async def update_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    """ユーザー情報更新（管理者のみ、パスワード更新は除く）"""
+    """ユーザー情報更新（管理者のみ、パスワード更新含む）"""
     # メールアドレス重複チェック（変更する場合）
     if user_update.email:
         existing_user = crud_user.get_user_by_email(db, user_update.email)
@@ -78,13 +78,40 @@ async def update_user(
                 detail="User with this email already exists"
             )
 
-    db_user = crud_user.update_user(db, user_id, user_update)
-    if not db_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return db_user
+    # パスワード更新処理（指定された場合）
+    if user_update.password:
+        # パスワードをハッシュ化
+        hashed_password = get_password_hash(user_update.password)
+        # UserUpdateスキーマからpasswordを除外し、hashed_passwordに置き換え
+        update_data = user_update.model_dump(exclude_unset=True, exclude={'password'})
+
+        # ユーザー取得
+        db_user = crud_user.get_user_by_id(db, user_id)
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # フィールド更新
+        for field, value in update_data.items():
+            setattr(db_user, field, value)
+
+        # ハッシュ化されたパスワードを設定
+        db_user.hashed_password = hashed_password
+
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+    else:
+        # パスワード更新なしの通常更新
+        db_user = crud_user.update_user(db, user_id, user_update)
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        return db_user
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

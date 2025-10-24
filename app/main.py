@@ -6,12 +6,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.db.session import engine
 from app.api.v1.api import api_router
 from app.core.security import get_current_user
 from app.schemas.user import User
+
+# レート制限初期化
+limiter = Limiter(key_func=get_remote_address)
 
 # FastAPIアプリケーション初期化
 app = FastAPI(
@@ -21,6 +27,10 @@ app = FastAPI(
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc"
 )
+
+# レート制限を有効化
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS設定
 if settings.BACKEND_CORS_ORIGINS:
