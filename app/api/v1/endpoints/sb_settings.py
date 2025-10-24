@@ -28,6 +28,30 @@ async def get_settings(
     return {"settings": settings}
 
 
+@router.get("/{setting_id}", response_model=SalonBoardSetting)
+async def get_setting(
+    setting_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """SALON BOARD設定取得（単一）"""
+    db_setting = crud_setting.get_setting_by_id(db, setting_id)
+    if not db_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found"
+        )
+    
+    # 権限確認（自分の設定のみ取得可能）
+    if db_setting.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access your own settings"
+        )
+    
+    return db_setting
+
+
 @router.post("/", response_model=SalonBoardSetting, status_code=status.HTTP_201_CREATED)
 async def create_setting(
     setting: SalonBoardSettingCreate,
