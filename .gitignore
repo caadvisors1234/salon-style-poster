@@ -65,3 +65,18 @@ tmp/
 
 # Uploaded files (開発中)
 uploads/
+
+.playwright/
+.playwright-mcp/
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite

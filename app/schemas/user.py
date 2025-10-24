@@ -21,7 +21,6 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     """ユーザー更新スキーマ"""
     email: Optional[EmailStr] = None
-    password: Optional[str] = Field(None, min_length=8, description="新しいパスワード（8文字以上）")
     role: Optional[Literal["admin", "user"]] = None
     is_active: Optional[bool] = None
 

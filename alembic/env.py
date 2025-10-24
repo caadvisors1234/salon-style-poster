@@ -4,15 +4,20 @@ Alembic環境設定ファイル
 このファイルはAlembicがマイグレーションを実行する際に使用されます。
 """
 from logging.config import fileConfig
+import os
+import sys
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+
 from alembic import context
 
-# app.models内のすべてのモデルをインポート
-from app.db.base import Base
-from app.models.user import User
-from app.models.salon_board_setting import SalonBoardSetting
-from app.models.current_task import CurrentTask
+# プロジェクトのルートディレクトリをPythonパスに追加
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# app.models内のすべてのモデルをインポートしてBaseに登録
+from app.db.session import Base
+from app.models import user, salon_board_setting, current_task
 
 # app.core.configから設定をインポート
 from app.core.config import settings

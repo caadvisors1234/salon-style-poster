@@ -3,12 +3,12 @@ CurrentTaskモデル
 現在実行中のタスク情報
 """
 from sqlalchemy import Column, Integer, String, TIMESTAMP, ForeignKey, Text, CheckConstraint
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 
 from app.db.session import Base
+from app.db.types import Guid  # カスタムのGuid型をインポート
 
 
 class CurrentTask(Base):
@@ -16,7 +16,7 @@ class CurrentTask(Base):
 
     __tablename__ = "current_tasks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Guid, primary_key=True, default=uuid.uuid4)
     user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),

@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Playwrightブラウザインストール（Firefox）
 RUN playwright install firefox
-RUN playwright install-deps firefox
 
 # アプリケーションコードをコピー
 COPY . .

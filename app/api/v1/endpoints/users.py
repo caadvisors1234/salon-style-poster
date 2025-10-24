@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.db.session import get_db
-from app.core.security import get_current_admin_user
+from app.core.security import get_current_admin_user, get_password_hash
 from app.crud import user as crud_user
 from app.schemas.user import User, UserCreate, UserUpdate, UserList
 
@@ -41,7 +41,8 @@ async def create_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="User with this email already exists"
         )
-    return crud_user.create_user(db, user)
+    hashed_password = get_password_hash(user.password)
+    return crud_user.create_user(db, user=user, hashed_password=hashed_password)
 
 
 @router.get("/{user_id}", response_model=User)
@@ -67,7 +68,7 @@ async def update_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    """ユーザー情報更新（管理者のみ）"""
+    """ユーザー情報更新（管理者のみ、パスワード更新は除く）"""
     # メールアドレス重複チェック（変更する場合）
     if user_update.email:
         existing_user = crud_user.get_user_by_email(db, user_update.email)

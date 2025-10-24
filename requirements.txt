@@ -16,12 +16,14 @@ playwright==1.41.0
 
 # Security
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+passlib[bcrypt]
 cryptography==42.0.0
+bcrypt==3.2.2
 
 # Data Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
+email-validator==2.1.1
 
 # File Handling
 python-multipart==0.0.6

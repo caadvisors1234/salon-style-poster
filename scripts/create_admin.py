@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.session import SessionLocal
 from app.core.security import get_password_hash
-from app.models.user import User
+from app.models import User
 
 
 def create_admin_user(email: str, password: str, db: Session) -> bool:

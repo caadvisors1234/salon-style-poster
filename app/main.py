@@ -1,7 +1,7 @@
 """
 FastAPIアプリケーションのエントリーポイント
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
@@ -10,6 +10,8 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.session import engine
 from app.api.v1.api import api_router
+from app.core.security import get_current_user
+from app.schemas.user import User
 
 # FastAPIアプリケーション初期化
 app = FastAPI(
@@ -62,26 +64,28 @@ async def shutdown_event():
 
 @app.get("/")
 async def root(request: Request):
-    """ルートエンドポイント - ログインページへリダイレクト"""
-    return templates.TemplateResponse("login.html", {"request": request})
+    """ルートエンドポイント - ログインページを表示"""
+    return templates.TemplateResponse("login.html", {"request": request, "user": None})
 
 
 @app.get("/main")
-async def main_page(request: Request):
+async def main_page(request: Request, current_user: User = Depends(get_current_user)):
     """メインページ（タスク実行）"""
-    return templates.TemplateResponse("main/index.html", {"request": request})
+    return templates.TemplateResponse("main/index.html", {"request": request, "user": current_user})
 
 
 @app.get("/settings")
-async def settings_page(request: Request):
+async def settings_page(request: Request, current_user: User = Depends(get_current_user)):
     """設定ページ"""
-    return templates.TemplateResponse("settings/index.html", {"request": request})
+    return templates.TemplateResponse("settings/index.html", {"request": request, "user": current_user})
 
 
 @app.get("/admin/users")
-async def admin_users_page(request: Request):
+async def admin_users_page(request: Request, current_user: User = Depends(get_current_user)):
     """ユーザー管理ページ（管理者専用）"""
-    return templates.TemplateResponse("admin/users.html", {"request": request})
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+    return templates.TemplateResponse("admin/users.html", {"request": request, "user": current_user})
 
 
 @app.get("/health")

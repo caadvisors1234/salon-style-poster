@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
-from app.core.security import get_password_hash
 
 
 def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
@@ -73,20 +72,21 @@ def get_users_count(db: Session, role: Optional[str] = None) -> int:
     return query.count()
 
 
-def create_user(db: Session, user: UserCreate) -> User:
+def create_user(db: Session, user: UserCreate, hashed_password: str) -> User:
     """
     ユーザー作成
 
     Args:
         db: データベースセッション
         user: ユーザー作成スキーマ
+        hashed_password: ハッシュ化済みパスワード
 
     Returns:
         User: 作成されたユーザー
     """
     db_user = User(
         email=user.email,
-        hashed_password=get_password_hash(user.password),
+        hashed_password=hashed_password,
         role=user.role,
         is_active=user.is_active
     )
@@ -98,7 +98,7 @@ def create_user(db: Session, user: UserCreate) -> User:
 
 def update_user(db: Session, user_id: int, user_update: UserUpdate) -> Optional[User]:
     """
-    ユーザー情報更新
+    ユーザー情報更新（パスワードを除く）
 
     Args:
         db: データベースセッション
@@ -111,11 +111,7 @@ def update_user(db: Session, user_id: int, user_update: UserUpdate) -> Optional[
     db_user = get_user_by_id(db, user_id)
     if db_user:
         update_data = user_update.model_dump(exclude_unset=True)
-
-        # パスワードが含まれている場合はハッシュ化
-        if "password" in update_data and update_data["password"]:
-            update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
-
+        
         # フィールドを更新
         for field, value in update_data.items():
             setattr(db_user, field, value)
