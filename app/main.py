@@ -79,23 +79,21 @@ async def root(request: Request):
 
 
 @app.get("/main")
-async def main_page(request: Request, current_user: User = Depends(get_current_user)):
-    """メインページ（タスク実行）"""
-    return templates.TemplateResponse("main/index.html", {"request": request, "user": current_user})
+async def main_page(request: Request):
+    """メインページ（タスク実行）- クライアントサイドで認証チェック"""
+    return templates.TemplateResponse("main/index.html", {"request": request})
 
 
 @app.get("/settings")
-async def settings_page(request: Request, current_user: User = Depends(get_current_user)):
-    """設定ページ"""
-    return templates.TemplateResponse("settings/index.html", {"request": request, "user": current_user})
+async def settings_page(request: Request):
+    """設定ページ - クライアントサイドで認証チェック"""
+    return templates.TemplateResponse("settings/index.html", {"request": request})
 
 
 @app.get("/admin/users")
-async def admin_users_page(request: Request, current_user: User = Depends(get_current_user)):
-    """ユーザー管理ページ（管理者専用）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
-    return templates.TemplateResponse("admin/users.html", {"request": request, "user": current_user})
+async def admin_users_page(request: Request):
+    """ユーザー管理ページ（管理者専用）- クライアントサイドで認証チェック"""
+    return templates.TemplateResponse("admin/users.html", {"request": request})
 
 
 @app.get("/health")
