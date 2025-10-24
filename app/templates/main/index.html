@@ -137,7 +137,8 @@
     // SALON BOARD設定読み込み
     async function loadSettings() {
         try {
-            const settings = await apiCall('/api/v1/sb-settings/');
+            const data = await apiCall('/api/v1/sb-settings/');
+            const settings = data.settings || [];
             const select = document.getElementById('setting_id');
 
             // 既存のオプションをクリア（最初のoption以外）

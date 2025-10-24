@@ -78,6 +78,12 @@ async def root(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "user": None})
 
 
+@app.get("/login")
+async def login_page(request: Request):
+    """ログインページ"""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
 @app.get("/main")
 async def main_page(request: Request):
     """メインページ（タスク実行）- クライアントサイドで認証チェック"""

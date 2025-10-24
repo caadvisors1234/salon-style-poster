@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SALON BOARD Style Poster{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -13,17 +13,8 @@
         <div class="container">
             <div class="header-content">
                 <h1 class="header-title">SALON BOARD Style Poster</h1>
-                <nav class="header-nav">
-                    {% if user %}
-                        <a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>
-                        <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>
-                        {% if user.role == 'admin' %}
-                        <a href="/admin/users" class="nav-link {% if active_page == 'admin' %}active{% endif %}">ユーザー管理</a>
-                        {% endif %}
-                        <span class="text-muted">|</span>
-                        <span class="text-muted">{{ user.email }}</span>
-                        <button onclick="logout()" class="btn btn-secondary">ログアウト</button>
-                    {% endif %}
+                <nav class="header-nav" id="header-nav">
+                    <!-- JavaScriptで動的に生成 -->
                 </nav>
             </div>
         </div>
@@ -37,6 +28,53 @@
     </main>
 
     <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+    <script>
+        // ヘッダーナビゲーションの初期化
+        (async function initHeader() {
+            const token = getToken();
+            const nav = document.getElementById('header-nav');
+
+            if (!nav) return;
+
+            if (token) {
+                try {
+                    // ユーザー情報を取得
+                    const user = await apiCall('/api/v1/auth/me');
+
+                    let navHTML = `
+                        <a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>
+                        <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>
+                    `;
+
+                    if (user.role === 'admin') {
+                        navHTML += `
+                            <a href="/admin/users" class="nav-link {% if active_page == 'admin' %}active{% endif %}">ユーザー管理</a>
+                        `;
+                    }
+
+                    navHTML += `
+                        <span class="text-muted">|</span>
+                        <span class="text-muted">${user.email}</span>
+                        <button onclick="logout()" class="btn btn-secondary">ログアウト</button>
+                    `;
+
+                    nav.innerHTML = navHTML;
+                } catch (error) {
+                    console.error('Failed to load user info:', error);
+                    // トークンが無効な場合はログインページへ
+                    if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+                        removeToken();
+                        window.location.href = '/login';
+                    }
+                }
+            } else {
+                // ログインしていない場合はログインページへリダイレクト（ログインページ以外）
+                if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+                    window.location.href = '/login';
+                }
+            }
+        })();
+    </script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

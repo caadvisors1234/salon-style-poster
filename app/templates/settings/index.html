@@ -141,7 +141,8 @@
     // 設定読み込み
     async function loadSettings() {
         try {
-            const settings = await apiCall('/api/v1/sb-settings/');
+            const data = await apiCall('/api/v1/sb-settings/');
+            const settings = data.settings || [];
             const tbody = document.getElementById('settings-tbody');
             const noSettings = document.getElementById('no-settings');
 
