@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+
+{% block title %}タスク実行 - SALON BOARD Style Poster{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2 class="card-header">スタイル投稿タスク</h2>
+
+    <!-- タスク未実行時のフォーム -->
+    <div id="task-form-section" class="hidden">
+        <form id="task-form">
+            <div class="form-group">
+                <label for="setting_id" class="form-label">SALON BOARD設定</label>
+                <select id="setting_id" name="setting_id" class="form-select" required>
+                    <option value="">設定を選択してください</option>
+                </select>
+                <span class="form-hint">
+                    設定がない場合は「設定」ページから追加してください
+                </span>
+            </div>
+
+            <div class="form-group">
+                <label for="style_data_file" class="form-label">スタイル情報ファイル</label>
+                <input
+                    type="file"
+                    id="style_data_file"
+                    name="style_data_file"
+                    class="form-input form-file"
+                    accept=".csv,.xlsx"
+                    required
+                >
+                <span class="form-hint">
+                    CSV または Excel ファイル（.csv, .xlsx）を選択してください
+                </span>
+            </div>
+
+            <div class="form-group">
+                <label for="image_files" class="form-label">画像ファイル</label>
+                <input
+                    type="file"
+                    id="image_files"
+                    name="image_files"
+                    class="form-input form-file"
+                    accept="image/*"
+                    multiple
+                    required
+                >
+                <span class="form-hint">
+                    スタイル情報ファイルで指定した画像をすべて選択してください
+                </span>
+            </div>
+
+            <div class="btn-group">
+                <button type="submit" class="btn btn-primary">
+                    タスクを開始
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- タスク実行中の進捗表示 -->
+    <div id="task-progress-section" class="hidden">
+        <div class="progress-container">
+            <div class="progress-bar-wrapper">
+                <div id="progress-bar" class="progress-bar" style="width: 0%">
+                    <span id="progress-text">0%</span>
+                </div>
+            </div>
+            <div class="progress-info">
+                <span id="progress-items">0 / 0 件完了</span>
+                <span id="progress-status">処理中...</span>
+            </div>
+        </div>
+
+        <div class="mt-2">
+            <p class="text-muted">
+                タスクID: <span id="task-id" class="text-primary"></span>
+            </p>
+            <p class="text-muted">
+                開始時刻: <span id="task-created-at"></span>
+            </p>
+        </div>
+
+        <div class="btn-group mt-2">
+            <button id="cancel-task-btn" class="btn btn-danger">
+                タスクを中止
+            </button>
+        </div>
+    </div>
+
+    <!-- タスク完了時の結果表示 -->
+    <div id="task-result-section" class="hidden">
+        <div id="success-message" class="alert alert-success hidden">
+            タスクが正常に完了しました！
+        </div>
+
+        <div id="failure-message" class="alert alert-danger hidden">
+            タスクがエラーにより中断されました
+        </div>
+
+        <div id="error-report-section" class="hidden">
+            <h3 class="mt-2 mb-1">エラーレポート</h3>
+            <div id="error-list" class="error-list"></div>
+        </div>
+
+        <div class="btn-group mt-2">
+            <button id="new-task-btn" class="btn btn-primary">
+                新しいタスクを開始
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let pollingInterval = null;
+    let currentUser = null;
+
+    // ページロード時の初期化
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            // ユーザー情報取得
+            currentUser = await apiCall('/api/v1/auth/me');
+
+            // SALON BOARD設定を読み込み
+            await loadSettings();
+
+            // タスクステータスを確認
+            await checkTaskStatus();
+        } catch (error) {
+            console.error('Initialization error:', error);
+            showAlert(error.message, 'danger');
+        }
+    });
+
+    // SALON BOARD設定読み込み
+    async function loadSettings() {
+        try {
+            const settings = await apiCall('/api/v1/sb-settings/');
+            const select = document.getElementById('setting_id');
+
+            // 既存のオプションをクリア（最初のoption以外）
+            while (select.options.length > 1) {
+                select.remove(1);
+            }
+
+            if (settings.length === 0) {
+                showAlert('SALON BOARD設定が登録されていません。設定ページから登録してください。', 'warning');
+            }
+
+            settings.forEach(setting => {
+                const option = document.createElement('option');
+                option.value = setting.id;
+                option.textContent = setting.setting_name;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to load settings:', error);
+        }
+    }
+
+    // タスクステータス確認
+    async function checkTaskStatus() {
+        try {
+            const status = await apiCall('/api/v1/tasks/status');
+
+            if (status.status === 'PROCESSING' || status.status === 'CANCELLING') {
+                // 実行中
+                showProgressSection(status);
+                startPolling();
+            } else if (status.status === 'SUCCESS' || status.status === 'FAILURE') {
+                // 完了
+                await showResultSection(status);
+            }
+        } catch (error) {
+            // タスクが存在しない場合
+            showFormSection();
+        }
+    }
+
+    // フォームセクション表示
+    function showFormSection() {
+        document.getElementById('task-form-section').classList.remove('hidden');
+        document.getElementById('task-progress-section').classList.add('hidden');
+        document.getElementById('task-result-section').classList.add('hidden');
+    }
+
+    // 進捗セクション表示
+    function showProgressSection(status) {
+        document.getElementById('task-form-section').classList.add('hidden');
+        document.getElementById('task-progress-section').classList.remove('hidden');
+        document.getElementById('task-result-section').classList.add('hidden');
+
+        updateProgress(status);
+    }
+
+    // 結果セクション表示
+    async function showResultSection(status) {
+        document.getElementById('task-form-section').classList.add('hidden');
+        document.getElementById('task-progress-section').classList.add('hidden');
+        document.getElementById('task-result-section').classList.remove('hidden');
+
+        if (status.status === 'SUCCESS') {
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('failure-message').classList.add('hidden');
+        } else {
+            document.getElementById('success-message').classList.add('hidden');
+            document.getElementById('failure-message').classList.remove('hidden');
+        }
+
+        // エラーレポート取得
+        if (status.has_errors) {
+            await loadErrorReport();
+        } else {
+            document.getElementById('error-report-section').classList.add('hidden');
+        }
+    }
+
+    // 進捗更新
+    function updateProgress(status) {
+        const progress = status.progress;
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const progressItems = document.getElementById('progress-items');
+        const progressStatus = document.getElementById('progress-status');
+        const taskId = document.getElementById('task-id');
+        const taskCreatedAt = document.getElementById('task-created-at');
+
+        progressBar.style.width = `${progress}%`;
+        progressText.textContent = `${progress}%`;
+        progressItems.textContent = `${status.completed_items} / ${status.total_items} 件完了`;
+        progressStatus.textContent = status.status === 'CANCELLING' ? '中止中...' : '処理中...';
+        taskId.textContent = status.task_id;
+        taskCreatedAt.textContent = new Date(status.created_at).toLocaleString('ja-JP');
+    }
+
+    // ポーリング開始
+    function startPolling() {
+        if (pollingInterval) return;
+
+        pollingInterval = setInterval(async () => {
+            try {
+                const status = await apiCall('/api/v1/tasks/status');
+
+                if (status.status === 'PROCESSING' || status.status === 'CANCELLING') {
+                    updateProgress(status);
+                } else {
+                    // 完了
+                    stopPolling();
+                    await showResultSection(status);
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+                stopPolling();
+            }
+        }, 2000); // 2秒ごと
+    }
+
+    // ポーリング停止
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+    }
+
+    // エラーレポート読み込み
+    async function loadErrorReport() {
+        try {
+            const report = await apiCall('/api/v1/tasks/error-report');
+            const errorList = document.getElementById('error-list');
+            const errorSection = document.getElementById('error-report-section');
+
+            errorList.innerHTML = '';
+
+            report.errors.forEach((error, index) => {
+                const errorItem = document.createElement('div');
+                errorItem.className = 'error-item';
+                errorItem.innerHTML = `
+                    <div class="error-item-header">
+                        エラー ${index + 1}: 行 ${error.row_number} - ${error.style_name}
+                    </div>
+                    <div class="error-item-details">
+                        <strong>項目:</strong> ${error.field}<br>
+                        <strong>理由:</strong> ${error.reason}
+                        ${error.screenshot_path ? `<br><strong>スクリーンショット:</strong> ${error.screenshot_path}` : ''}
+                    </div>
+                `;
+                errorList.appendChild(errorItem);
+            });
+
+            errorSection.classList.remove('hidden');
+        } catch (error) {
+            console.error('Failed to load error report:', error);
+        }
+    }
+
+    // タスクフォーム送信
+    document.getElementById('task-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const formData = new FormData(e.target);
+
+        showLoading();
+
+        try {
+            const result = await apiCallFormData('/api/v1/tasks/style-post', formData);
+
+            hideLoading();
+            showAlert('タスクを開始しました', 'success');
+
+            // 進捗セクションに切り替え
+            await checkTaskStatus();
+        } catch (error) {
+            hideLoading();
+            showAlert(error.message, 'danger');
+        }
+    });
+
+    // タスク中止ボタン
+    document.getElementById('cancel-task-btn').addEventListener('click', async () => {
+        if (!confirm('本当にタスクを中止しますか？')) {
+            return;
+        }
+
+        try {
+            await apiCall('/api/v1/tasks/cancel', { method: 'POST' });
+            showAlert('タスク中止リクエストを送信しました', 'info');
+        } catch (error) {
+            showAlert(error.message, 'danger');
+        }
+    });
+
+    // 新しいタスク開始ボタン
+    document.getElementById('new-task-btn').addEventListener('click', async () => {
+        try {
+            await apiCall('/api/v1/tasks/finished-task', { method: 'DELETE' });
+            showFormSection();
+            // フォームをリセット
+            document.getElementById('task-form').reset();
+        } catch (error) {
+            showAlert(error.message, 'danger');
+        }
+    });
+</script>
+{% endblock %}

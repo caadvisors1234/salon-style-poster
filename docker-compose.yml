@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # PostgreSQLデータベース
+  db:
+    image: postgres:15-alpine
+    container_name: salon_board_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-salon_board_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-salon_board_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-salon_board_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - salon_board_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: salon_board_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - salon_board_network
+
+  # FastAPI Webアプリケーション
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salon_board_web
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+      - app_logs:/app/logs
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - salon_board_network
+
+  # Celery Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salon_board_worker
+    command: celery -A app.worker worker --loglevel=info
+    volumes:
+      - .:/app
+      - app_logs:/app/logs
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - salon_board_network
+
+  # Nginx (リバースプロキシ)
+  nginx:
+    image: nginx:alpine
+    container_name: salon_board_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./app/static:/app/static:ro
+    depends_on:
+      - web
+    networks:
+      - salon_board_network
+
+networks:
+  salon_board_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  app_logs:

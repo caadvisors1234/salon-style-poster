@@ -1,0 +1,67 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Screenshots (エラー時のスクリーンショットは除外)
+app/static/screenshots/*.png
+!app/static/screenshots/.gitkeep
+
+# Alembic
+alembic/versions/*.pyc
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Uploaded files (開発中)
+uploads/

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SALON BOARD Style Poster{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% block header %}
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1 class="header-title">SALON BOARD Style Poster</h1>
+                <nav class="header-nav">
+                    {% if user %}
+                        <a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>
+                        <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>
+                        {% if user.role == 'admin' %}
+                        <a href="/admin/users" class="nav-link {% if active_page == 'admin' %}active{% endif %}">ユーザー管理</a>
+                        {% endif %}
+                        <span class="text-muted">|</span>
+                        <span class="text-muted">{{ user.email }}</span>
+                        <button onclick="logout()" class="btn btn-secondary">ログアウト</button>
+                    {% endif %}
+                </nav>
+            </div>
+        </div>
+    </header>
+    {% endblock %}
+
+    <main class="main-content">
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    {% block scripts %}
+    <script>
+        // JWTトークン管理
+        const TOKEN_KEY = 'access_token';
+
+        function getToken() {
+            return localStorage.getItem(TOKEN_KEY);
+        }
+
+        function setToken(token) {
+            localStorage.setItem(TOKEN_KEY, token);
+        }
+
+        function removeToken() {
+            localStorage.removeItem(TOKEN_KEY);
+        }
+
+        function logout() {
+            removeToken();
+            window.location.href = '/';
+        }
+
+        // API呼び出しヘルパー
+        async function apiCall(url, options = {}) {
+            const token = getToken();
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers
+                });
+
+                if (response.status === 401) {
+                    // 認証エラー
+                    removeToken();
+                    window.location.href = '/';
+                    return null;
+                }
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'APIエラーが発生しました');
+                }
+
+                // 204 No Content の場合
+                if (response.status === 204) {
+                    return null;
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        // フォームデータAPI呼び出しヘルパー
+        async function apiCallFormData(url, formData) {
+            const token = getToken();
+            const headers = {};
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: formData
+                });
+
+                if (response.status === 401) {
+                    removeToken();
+                    window.location.href = '/';
+                    return null;
+                }
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'APIエラーが発生しました');
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        // アラート表示
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+
+            const container = document.querySelector('.container');
+            container.insertBefore(alertDiv, container.firstChild);
+
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        // ローディングオーバーレイ
+        function showLoading() {
+            const overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+            overlay.id = 'loading-overlay';
+            overlay.innerHTML = '<div class="loading-spinner"></div>';
+            document.body.appendChild(overlay);
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        }
+    </script>
+    {% endblock %}
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

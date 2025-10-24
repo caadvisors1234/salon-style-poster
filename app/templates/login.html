@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン - SALON BOARD Style Poster</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1 class="login-title">SALON BOARD Style Poster</h1>
+                <p class="login-subtitle">スタイル自動投稿システム</p>
+            </div>
+
+            <div id="error-message" class="alert alert-danger hidden"></div>
+
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="email" class="form-label">メールアドレス</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        class="form-input"
+                        required
+                        autocomplete="email"
+                        placeholder="example@example.com"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password" class="form-label">パスワード</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        class="form-input"
+                        required
+                        autocomplete="current-password"
+                        placeholder="パスワードを入力"
+                    >
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" id="login-btn">
+                    ログイン
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const TOKEN_KEY = 'access_token';
+
+        // 既にログイン済みの場合はメインページにリダイレクト
+        if (localStorage.getItem(TOKEN_KEY)) {
+            window.location.href = '/main';
+        }
+
+        const loginForm = document.getElementById('login-form');
+        const loginBtn = document.getElementById('login-btn');
+        const errorMessage = document.getElementById('error-message');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // エラーメッセージをクリア
+            errorMessage.classList.add('hidden');
+            errorMessage.textContent = '';
+
+            // ボタンを無効化
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'ログイン中...';
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                // フォームデータとして送信
+                const formData = new URLSearchParams();
+                formData.append('username', email);
+                formData.append('password', password);
+
+                const response = await fetch('/api/v1/auth/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'ログインに失敗しました');
+                }
+
+                const data = await response.json();
+
+                // トークンを保存
+                localStorage.setItem(TOKEN_KEY, data.access_token);
+
+                // メインページにリダイレクト
+                window.location.href = '/main';
+
+            } catch (error) {
+                console.error('Login error:', error);
+                errorMessage.textContent = error.message;
+                errorMessage.classList.remove('hidden');
+
+                // ボタンを再有効化
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'ログイン';
+            }
+        });
+    </script>
+</body>
+</html>
