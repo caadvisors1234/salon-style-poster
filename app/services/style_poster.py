@@ -214,25 +214,40 @@ class SalonBoardStylePoster:
         form_config = self.selectors["style_form"]
 
         # 新規登録ページへ
+        print("新規登録ボタンをクリック中...")
         self._click_and_wait(form_config["new_style_button"])
+        print("✓ 新規登録ページへ移動完了")
 
         # 画像アップロード
+        print("画像アップロード開始...")
+        print(f"  - アップロードエリアをクリック中...")
         self.page.locator(form_config["image"]["upload_area"]).click()
+        print(f"  - モーダル表示待機中...")
         self.page.wait_for_selector(form_config["image"]["modal_container"])
+        print(f"  - 画像ファイル選択中: {image_path}")
         self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
-        self.page.wait_for_selector(form_config["image"]["submit_button_active"])
-        self.page.locator(form_config["image"]["submit_button_active"]).click()
+        print(f"  - 画像処理待機中（2秒）...")
+        time.sleep(2)  # 画像アップロード処理のための短い待機
+        print(f"  - 送信ボタンクリック中...")
+        # セレクタを簡略化：.isActiveクラスの有無に関わらず送信ボタンをクリック
+        self.page.locator("input.imageUploaderModalSubmitButton").click()
+        print(f"  - モーダル非表示待機中...")
         self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden")
+        print("✓ 画像アップロード完了")
 
         # スタイリスト名選択
+        print("スタイリスト名選択中...")
         self.page.locator(form_config["stylist_name_select"]).select_option(
             label=style_data["スタイリスト名"]
         )
+        print("✓ スタイリスト名選択完了")
 
         # テキスト入力
+        print("テキスト入力中...")
         self.page.locator(form_config["stylist_comment_textarea"]).fill(style_data["コメント"])
         self.page.locator(form_config["style_name_input"]).fill(style_data["スタイル名"])
         self.page.locator(form_config["menu_detail_textarea"]).fill(style_data["メニュー内容"])
+        print("✓ テキスト入力完了")
 
         # カテゴリ/長さ選択
         category = style_data["カテゴリ"]
@@ -325,6 +340,10 @@ class SalonBoardStylePoster:
             # スタイルごとにループ処理
             image_dir_path = Path(image_dir)
             for index, row in df.iterrows():
+                # 進捗コールバック（中止チェック）- try-exceptの外で呼び出し
+                if self.progress_callback:
+                    self.progress_callback(index, len(df))
+
                 try:
                     print(f"\n--- スタイル {index + 1}/{len(df)} 処理中 ---")
 
@@ -338,7 +357,7 @@ class SalonBoardStylePoster:
                     # スタイル処理
                     self.step_process_single_style(row.to_dict(), str(image_path))
 
-                    # 進捗コールバック
+                    # 成功時の進捗更新
                     if self.progress_callback:
                         self.progress_callback(index + 1, len(df))
 

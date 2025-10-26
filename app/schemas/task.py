@@ -3,7 +3,7 @@ Task関連スキーマ
 """
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Literal
 from uuid import UUID
 
 
@@ -32,7 +32,7 @@ class ErrorDetail(BaseModel):
     style_name: str = Field(..., description="スタイル名")
     field: str = Field(..., description="エラーが発生したフィールド名")
     reason: str = Field(..., description="エラー原因の詳細説明")
-    screenshot_url: str = Field(..., description="エラー発生時のスクリーンショット画像URL")
+    screenshot_url: str = Field(default="", description="エラー発生時のスクリーンショット画像URL")
 
 
 class ErrorReport(BaseModel):

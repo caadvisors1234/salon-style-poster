@@ -128,17 +128,24 @@ def process_style_post_task(
     except Exception as e:
         print(f"=== タスクエラー: {task_id} - {e} ===")
 
-        # エラーステータス更新
-        crud_task.update_task_status(db, task_uuid, "FAILURE")
+        # 中止リクエストによる例外かチェック
+        if "タスクが中止されました" in str(e) or "cancelled" in str(e).lower():
+            print("タスクが正常に中止されました")
+            # 中止ステータスに更新（CANCELLING → FAILURE）
+            # 注: CANCELLINGステータスのまま残すか、専用の"CANCELLED"ステータスを追加することも検討可能
+            crud_task.update_task_status(db, task_uuid, "FAILURE")
+        else:
+            # 通常のエラー処理
+            crud_task.update_task_status(db, task_uuid, "FAILURE")
 
-        # エラー情報記録（致命的エラー）
-        crud_task.add_task_error(db, task_uuid, {
-            "row_number": 0,
-            "style_name": "システムエラー",
-            "field": "タスク全体",
-            "reason": str(e),
-            "screenshot_path": ""
-        })
+            # エラー情報記録（致命的エラー）
+            crud_task.add_task_error(db, task_uuid, {
+                "row_number": 0,
+                "style_name": "システムエラー",
+                "field": "タスク全体",
+                "reason": str(e),
+                "screenshot_path": ""
+            })
 
         raise
 

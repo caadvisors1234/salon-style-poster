@@ -20,6 +20,7 @@ from app.crud import current_task as crud_task, salon_board_setting as crud_sett
 from app.schemas.user import User
 from app.schemas.task import TaskStatus, ErrorReport
 from app.services.tasks import process_style_post_task
+from app.core.celery_app import celery_app
 
 router = APIRouter()
 
@@ -209,7 +210,7 @@ async def cancel_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """タスク中止リクエスト"""
+    """タスク即時中止"""
     db_task = crud_task.get_task_by_user_id(db, current_user.id)
     if not db_task:
         raise HTTPException(
@@ -217,17 +218,22 @@ async def cancel_task(
             detail="No active task to cancel"
         )
 
-    if db_task.status not in ["PROCESSING"]:
+    if db_task.status not in ["PROCESSING", "CANCELLING"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task is already being cancelled or has finished"
+            detail="Task has already finished"
         )
 
-    # ステータスを CANCELLING に更新
-    crud_task.update_task_status(db, db_task.id, "CANCELLING")
+    # Celeryタスクを即座に終了（terminate=Trueで強制終了）
+    # タスクIDの形式: process_style_post[celery-task-id]
+    # Redis/Celeryから実行中のタスクを取得して終了
+    celery_app.control.revoke(str(db_task.id), terminate=True, signal='SIGKILL')
+
+    # ステータスをFAILUREに更新（中止扱い）
+    crud_task.update_task_status(db, db_task.id, "FAILURE")
 
     return {
-        "message": "Task cancellation requested. The task will stop after completing the current item."
+        "message": "Task has been forcefully terminated."
     }
 
 

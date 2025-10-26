@@ -321,13 +321,15 @@
 
     // タスク中止ボタン
     document.getElementById('cancel-task-btn').addEventListener('click', async () => {
-        if (!confirm('本当にタスクを中止しますか？')) {
+        if (!confirm('本当にタスクを即座に中止しますか？\n実行中の処理は強制終了されます。')) {
             return;
         }
 
         try {
             await apiCall('/api/v1/tasks/cancel', { method: 'POST' });
-            showAlert('タスク中止リクエストを送信しました', 'info');
+            showAlert('タスクを強制終了しました', 'success');
+            // ページをリロードして状態を更新
+            setTimeout(() => location.reload(), 1000);
         } catch (error) {
             showAlert(error.message, 'danger');
         }
