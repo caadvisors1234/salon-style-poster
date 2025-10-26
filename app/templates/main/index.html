@@ -72,6 +72,14 @@
             </div>
         </div>
 
+        <!-- エラーサマリー（処理中） -->
+        <div id="error-summary-progress" class="error-summary hidden">
+            <div class="error-summary-header">
+                <span class="error-summary-icon">⚠️</span>
+                <span class="error-summary-text">エラー発生中: <span id="error-count-progress" class="error-count">0</span>件</span>
+            </div>
+        </div>
+
         <div class="mt-2">
             <p class="text-muted">
                 タスクID: <span id="task-id" class="text-primary"></span>
@@ -100,6 +108,15 @@
 
         <div id="error-report-section" class="hidden">
             <h3 class="mt-2 mb-1">エラーレポート</h3>
+
+            <!-- エラーサマリー（完了時） -->
+            <div class="error-summary mb-2">
+                <div class="error-summary-header">
+                    <span class="error-summary-icon">⚠️</span>
+                    <span class="error-summary-text">合計 <span id="error-count-result" class="error-count">0</span>件のエラー</span>
+                </div>
+            </div>
+
             <div id="error-list" class="error-list"></div>
         </div>
 
@@ -116,12 +133,17 @@
 <script>
     let pollingInterval = null;
     let currentUser = null;
+    let lastErrorCount = 0;
+    let notificationPermission = 'default';
 
     // ページロード時の初期化
     document.addEventListener('DOMContentLoaded', async () => {
         try {
             // ユーザー情報取得
             currentUser = await apiCall('/api/v1/auth/me');
+
+            // ブラウザ通知の許可を要求
+            await requestNotificationPermission();
 
             // SALON BOARD設定を読み込み
             await loadSettings();
@@ -133,6 +155,26 @@
             showAlert(error.message, 'danger');
         }
     });
+
+    // ブラウザ通知許可を要求
+    async function requestNotificationPermission() {
+        if ('Notification' in window) {
+            notificationPermission = await Notification.requestPermission();
+            console.log('Notification permission:', notificationPermission);
+        }
+    }
+
+    // ブラウザ通知を送信
+    function sendNotification(title, body, options = {}) {
+        if (notificationPermission === 'granted') {
+            new Notification(title, {
+                body: body,
+                icon: '/static/favicon.ico',
+                badge: '/static/favicon.ico',
+                ...options
+            });
+        }
+    }
 
     // SALON BOARD設定読み込み
     async function loadSettings() {
@@ -234,6 +276,28 @@
         progressStatus.textContent = status.status === 'CANCELLING' ? '中止中...' : '処理中...';
         taskId.textContent = status.task_id;
         taskCreatedAt.textContent = new Date(status.created_at).toLocaleString('ja-JP');
+
+        // エラーサマリー表示（処理中）
+        const errorSummaryProgress = document.getElementById('error-summary-progress');
+        const errorCountProgress = document.getElementById('error-count-progress');
+
+        if (status.error_count > 0) {
+            errorSummaryProgress.classList.remove('hidden');
+            errorCountProgress.textContent = status.error_count;
+
+            // 新しいエラーが発生した場合は通知
+            if (status.error_count > lastErrorCount) {
+                const newErrors = status.error_count - lastErrorCount;
+                sendNotification(
+                    'エラー発生',
+                    `${newErrors}件の新しいエラーが発生しました（合計${status.error_count}件）`,
+                    { tag: 'task-error' }
+                );
+            }
+            lastErrorCount = status.error_count;
+        } else {
+            errorSummaryProgress.classList.add('hidden');
+        }
     }
 
     // ポーリング開始
@@ -249,6 +313,25 @@
                 } else {
                     // 完了
                     stopPolling();
+                    lastErrorCount = 0; // リセット
+
+                    // 完了通知
+                    if (status.status === 'SUCCESS') {
+                        sendNotification(
+                            'タスク完了',
+                            status.has_errors
+                                ? `タスクが完了しました（エラー: ${status.error_count}件）`
+                                : 'タスクが正常に完了しました',
+                            { tag: 'task-complete' }
+                        );
+                    } else {
+                        sendNotification(
+                            'タスク失敗',
+                            'タスクがエラーにより中断されました',
+                            { tag: 'task-failed' }
+                        );
+                    }
+
                     await showResultSection(status);
                 }
             } catch (error) {
@@ -272,20 +355,49 @@
             const report = await apiCall('/api/v1/tasks/error-report');
             const errorList = document.getElementById('error-list');
             const errorSection = document.getElementById('error-report-section');
+            const errorCountResult = document.getElementById('error-count-result');
 
             errorList.innerHTML = '';
+            errorCountResult.textContent = report.total_errors;
 
             report.errors.forEach((error, index) => {
                 const errorItem = document.createElement('div');
                 errorItem.className = 'error-item';
+
+                // デバッグ: エラー情報をコンソールに出力
+                console.log(`Error ${index + 1}:`, error);
+                console.log(`Screenshot URL:`, error.screenshot_url);
+
+                // スクリーンショット部分のHTML
+                const screenshotHtml = error.screenshot_url ? `
+                    <div class="error-screenshot">
+                        <strong>スクリーンショット:</strong>
+                        <div class="screenshot-thumbnail-container">
+                            <img
+                                src="${error.screenshot_url}"
+                                alt="Error screenshot"
+                                class="screenshot-thumbnail"
+                                onclick="openScreenshotModal('${error.screenshot_url}')"
+                            >
+                            <div class="screenshot-overlay">クリックで拡大</div>
+                        </div>
+                    </div>
+                ` : '';
+
                 errorItem.innerHTML = `
                     <div class="error-item-header">
-                        エラー ${index + 1}: 行 ${error.row_number} - ${error.style_name}
+                        <span class="error-number">エラー ${index + 1}</span>
+                        <span class="error-row">行 ${error.row_number}</span>
+                        <span class="error-style-name">${error.style_name}</span>
                     </div>
                     <div class="error-item-details">
-                        <strong>項目:</strong> ${error.field}<br>
-                        <strong>理由:</strong> ${error.reason}
-                        ${error.screenshot_path ? `<br><strong>スクリーンショット:</strong> ${error.screenshot_path}` : ''}
+                        <div class="error-field">
+                            <strong>項目:</strong> ${error.field}
+                        </div>
+                        <div class="error-reason">
+                            <strong>理由:</strong> ${error.reason}
+                        </div>
+                        ${screenshotHtml}
                     </div>
                 `;
                 errorList.appendChild(errorItem);
@@ -295,6 +407,43 @@
         } catch (error) {
             console.error('Failed to load error report:', error);
         }
+    }
+
+    // スクリーンショットモーダルを開く
+    function openScreenshotModal(imageUrl) {
+        // モーダル要素を作成
+        const modal = document.createElement('div');
+        modal.className = 'screenshot-modal';
+        modal.innerHTML = `
+            <div class="screenshot-modal-content">
+                <span class="screenshot-modal-close">&times;</span>
+                <img src="${imageUrl}" alt="Screenshot" class="screenshot-modal-image">
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // 閉じるボタン
+        const closeBtn = modal.querySelector('.screenshot-modal-close');
+        closeBtn.onclick = () => {
+            document.body.removeChild(modal);
+        };
+
+        // モーダル背景クリックで閉じる
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+            }
+        };
+
+        // ESCキーで閉じる
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                document.body.removeChild(modal);
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
     }
 
     // タスクフォーム送信

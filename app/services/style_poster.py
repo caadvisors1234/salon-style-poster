@@ -11,6 +11,13 @@ from typing import Dict, Optional, Callable
 from playwright.sync_api import sync_playwright, Page, Browser, Playwright
 
 
+class StylePostError(Exception):
+    """スタイル投稿エラー（スクリーンショット情報付き）"""
+    def __init__(self, message: str, screenshot_path: str = ""):
+        super().__init__(message)
+        self.screenshot_path = screenshot_path
+
+
 class SalonBoardStylePoster:
     """SALON BOARDスタイル自動投稿クラス"""
 
@@ -188,9 +195,18 @@ class SalonBoardStylePoster:
             if not found:
                 raise Exception(f"指定されたサロンが見つかりませんでした: {salon_info}")
 
-        # ログイン成功確認
-        self.page.wait_for_selector(login_config["dashboard_global_navi"])
-        print("✓ ログイン成功")
+        # ログイン成功確認（30秒タイムアウト）
+        try:
+            self.page.wait_for_selector(login_config["dashboard_global_navi"], timeout=30000)
+            print("✓ ログイン成功")
+        except Exception as e:
+            # ログイン失敗時のスクリーンショット取得
+            screenshot_path = self._take_screenshot("login-failure")
+            print(f"✗ ログイン失敗: {e}")
+            raise StylePostError(
+                "ログインに失敗しました。ユーザーID/パスワードを確認してください。",
+                screenshot_path=screenshot_path
+            ) from e
 
     def step_navigate_to_style_list_page(self):
         """スタイル一覧ページへ移動"""
@@ -228,11 +244,29 @@ class SalonBoardStylePoster:
         self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
         print(f"  - 画像処理待機中（2秒）...")
         time.sleep(2)  # 画像アップロード処理のための短い待機
-        print(f"  - 送信ボタンクリック中...")
-        # セレクタを簡略化：.isActiveクラスの有無に関わらず送信ボタンをクリック
-        self.page.locator("input.imageUploaderModalSubmitButton").click()
+
+        # 送信ボタンの状態を確認
+        submit_button = self.page.locator("input.imageUploaderModalSubmitButton")
+        print(f"  - 送信ボタン確認中...")
+
+        # ボタンが表示されるまで待機
+        submit_button.wait_for(state="visible", timeout=10000)
+
+        # ボタンがクリック可能になるまで待機
+        try:
+            submit_button.wait_for(state="attached", timeout=5000)
+            is_disabled = submit_button.evaluate("el => el.disabled")
+            has_active_class = submit_button.evaluate("el => el.classList.contains('isActive')")
+            print(f"  - ボタン状態: disabled={is_disabled}, hasActiveClass={has_active_class}")
+        except Exception as e:
+            print(f"  - ボタン状態確認エラー: {e}")
+
+        # 強制的にクリック（JavaScriptで実行）
+        print(f"  - 送信ボタンクリック中（JavaScript実行）...")
+        submit_button.evaluate("el => el.click()")
+
         print(f"  - モーダル非表示待機中...")
-        self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden")
+        self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=60000)
         print("✓ 画像アップロード完了")
 
         # スタイリスト名選択
