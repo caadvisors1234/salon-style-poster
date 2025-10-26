@@ -17,15 +17,27 @@
 ## 2. 技術スタック
 
 - **バックエンド**: Python 3.11, FastAPI, Uvicorn
-- **フロントエンド**: Jinja2, HTML5, CSS3, JavaScript
+- **フロントエンド**: Jinja2, HTML5, CSS3, JavaScript（モバイルファーストデザイン）
 - **データベース**: PostgreSQL 15+
 - **タスクキュー**: Celery, Redis
-- **ブラウザ自動化**: Playwright for Python
-- **コンテナ化**: Docker, Docker Compose
+- **ブラウザ自動化**: Playwright for Python（Firefox headless）
+- **コンテナ化**: Docker, Docker Compose（AMD64プラットフォーム指定）
 - **認証**: JWT (python-jose)
+- **暗号化**: Fernet (cryptography)、bcrypt (passlib)
 - **その他**: SQLAlchemy, Pydantic, Alembic, Pandas
 
-## 3. セットアップと実行手順
+## 3. 重要な技術的考慮事項
+
+### ARM64（Apple Silicon）環境での注意点
+このアプリケーションはARM64環境（Apple Silicon Mac等）でも動作しますが、Playwrightブラウザの起動問題を回避するため、Docker設定で`platform: linux/amd64`を指定しています。これによりエミュレーションが発生しますが、ブラウザ起動時間は約2-3秒で正常に動作します。
+
+### 画像アップロード処理の実装
+SALON BOARDの画像アップロードモーダルでは、送信ボタンに`.isActive`クラスが付与されるのを待つとタイムアウトが発生するため、画像選択後2秒待機してから直接ボタンをクリックする方式を採用しています。
+
+### タスクキャンセル機能
+実行中のタスクは強制終了（SIGKILL）により即座に中止できます。進捗表示画面の「中止」ボタンから実行可能です。
+
+## 4. セットアップと実行手順
 
 ### ステップ1: 環境変数の設定
 
@@ -76,7 +88,7 @@ docker-compose exec web python -m scripts.create_admin --email admin@example.com
 
 ステップ4で作成した管理者アカウント情報でログインしてください。
 
-## 4. ディレクトリ構造
+## 5. ディレクトリ構造
 
 ```
 .                           # プロジェクトルート
@@ -100,7 +112,26 @@ docker-compose exec web python -m scripts.create_admin --email admin@example.com
 └── README.md               # このファイル
 ```
 
-## 5. テストの実行
+## 6. 使用方法
+
+### SALON BOARD設定の登録
+1. ログイン後、ヘッダーの「設定」リンクをクリック
+2. SALON BOARDのログイン情報を入力して保存（パスワードは暗号化されて保存されます）
+3. 複数のSALON BOARDアカウントを登録可能
+
+### スタイル投稿の実行
+1. メインページで以下のファイルをアップロード：
+   - **スタイルデータファイル**: CSV（UTF-8）またはExcel形式
+   - **画像ZIPファイル**: スタイル画像を含むZIPアーカイブ
+2. 使用するSALON BOARD設定を選択
+3. 「投稿開始」ボタンをクリック
+4. 進捗状況がリアルタイムで表示されます
+5. 完了後、エラーがあった場合はレポートが表示されます
+
+### タスクの中止
+実行中のタスクを中止する場合は、進捗表示画面の「中止」ボタンをクリックしてください。タスクは即座に強制終了されます。
+
+## 7. テストの実行
 
 本プロジェクトには、APIの動作を保証するための統合テストが含まれています。
 
@@ -119,3 +150,76 @@ docker-compose exec web pytest
 ```bash
 docker-compose exec web pytest tests/api/v1/test_auth.py
 ```
+
+## 8. トラブルシューティング
+
+### ブラウザ起動が遅い（ARM64環境）
+**症状**: タスク実行時にブラウザ起動に数分以上かかる、またはタイムアウトする
+
+**原因**: `docker-compose.yml`でプラットフォーム指定が欠けている
+
+**解決策**: `docker-compose.yml`の`web`と`worker`サービスに以下を追加：
+```yaml
+platform: linux/amd64
+```
+
+### 画像アップロードでタイムアウトが発生
+**症状**: スタイル投稿時に画像アップロードでタイムアウトエラーが発生
+
+**原因**: 送信ボタンの`.isActive`クラスを待機している古い実装
+
+**解決策**: 最新版のコードでは修正済み。`app/services/style_poster.py`で2秒待機+直接クリック方式を採用
+
+### タスクが中止できない
+**症状**: 中止ボタンをクリックしてもタスクが継続する
+
+**原因**: 古いバージョンの中止処理
+
+**解決策**: 最新版では強制終了（SIGKILL）を実装済み。コンテナを再起動してください：
+```bash
+docker-compose restart web worker
+```
+
+### データベース接続エラー
+**症状**: アプリケーション起動時にデータベース接続エラーが発生
+
+**解決策**:
+```bash
+# コンテナ状態確認
+docker-compose ps
+
+# PostgreSQLコンテナが起動していない場合
+docker-compose up -d db
+
+# データベースログ確認
+docker-compose logs db
+```
+
+### Celeryワーカーが起動しない
+**症状**: タスクが「処理中」のまま進まない
+
+**解決策**:
+```bash
+# ワーカーログ確認
+docker-compose logs worker
+
+# ワーカー再起動
+docker-compose restart worker
+
+# Redisの状態確認
+docker-compose exec redis redis-cli ping
+```
+
+## 9. 関連ドキュメント
+
+プロジェクトの詳細な技術情報は以下のドキュメントを参照してください：
+
+- **docs/ARCHITECTURE.md**: システムアーキテクチャ、セキュリティ、デプロイ手順
+- **docs/playwright_spec.md**: Playwright自動化の技術仕様と実装詳細
+- **docs/implementation_plan.md**: 実装計画と進捗状況
+- **docs/api_spec.md**: REST API仕様
+- **docs/database_design.md**: データベース設計
+
+## 10. ライセンスとサポート
+
+このプロジェクトは内部使用を目的としています。技術的な質問や問題が発生した場合は、開発チームにお問い合わせください。

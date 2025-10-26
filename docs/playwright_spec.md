@@ -2,13 +2,13 @@
 
 ### **1. 目的**
 
-本仕様書は、Webアプリケーションのバックグラウンドタスクとして実行される クラスの構造、メソッド、および処理フローを詳細に定義する。開発者は本仕様書に基づき、SALON BOARDの画面操作を自動化するPythonコードを実装する。
+本仕様書は、Webアプリケーションのバックグラウンドタスクとして実行される `SalonBoardStylePoster` クラスの構造、メソッド、および処理フローを詳細に定義する。開発者は本仕様書に基づき、SALON BOARDの画面操作を自動化するPythonコードを実装する。
 
 ### **2. クラス設計**
 
 ### **2.1. クラス名**
 
-`SalonBoardStylePoster`(変更可)
+`SalonBoardStylePoster`
 
 ### **2.2. 責務**
 
@@ -30,9 +30,9 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 ### **2.4. 外部インターフェース（Public Methods）**
 
 - `__init__(self, selectors, screenshot_dir, headless, slow_mo)`:
-クラスを初期化する。
-- `run(self, user_id, password, data_filepath, image_dir, salon_info)`:
-自動投稿の全プロセスを実行するエントリーポイント。内部でブラウザの起動から終了までを管理する。
+  クラスを初期化する。
+- `run(self, user_id, password, data_filepath, image_dir, salon_info, progress_callback)`:
+  自動投稿の全プロセスを実行するエントリーポイント。内部でブラウザの起動から終了までを管理する。
 
 ### **3. 内部実装仕様**
 
@@ -94,7 +94,8 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
     - `style_form.image.upload_area` をクリックしてモーダルを開く。
     - `wait_for_selector()` で `modal_container` の表示を待つ。
     - `file_input` に `set_input_files()` で画像パスを設定する。
-    - `submit_button_active` の表示を待ち、クリックする。
+    - **重要**: 画像処理のため `time.sleep(2)` で2秒待機する。
+    - **直接クリック**: `.isActive` クラスの有無に関わらず、`input.imageUploaderModalSubmitButton` セレクタで送信ボタンを直接クリックする。
     - `wait_for_selector(state="hidden")` でモーダルが閉じるのを待つ。
 3. **フォーム入力**:
     - **スタイリスト名**: `stylist_name_select` に `select_option(label=...)` で選択。
@@ -118,21 +119,53 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 
 ### **3.4. 統括メソッド (`run`)**
 
-1. `_start_browser()` を呼び出してブラウザを起動する。
-2. `step_login()` を実行する。失敗した場合はスクリーンショットを撮影し、処理を中断する。
-3. 入力データファイル（CSV/Excel）をPandasで読み込む。
-4. `step_navigate_to_style_list_page()` を実行する。失敗した場合はスクリーンショットを撮影し、処理を中断する。
-5. 読み込んだデータを1行ずつループ処理する。
+1. `progress_callback` 引数を `self.progress_callback` に保存する。
+2. `_start_browser()` を呼び出してブラウザを起動する。
+3. `step_login()` を実行する。失敗した場合はスクリーンショットを撮影し、処理を中断する。
+4. 入力データファイル（CSV/Excel）をPandasで読み込む。
+5. `step_navigate_to_style_list_page()` を実行する。失敗した場合はスクリーンショットを撮影し、処理を中断する。
+6. 読み込んだデータを1行ずつループ処理する。
+    - **ループ開始時に進捗コールバック呼び出し**（try-exceptの外）：中止リクエストのチェック。
     - ループ内で `step_process_single_style()` を呼び出す。
     - `step_process_single_style()` が失敗した場合は、スクリーンショットを撮影し、エラーログを出力して**次の行の処理へ進む (continue)**。
-    - ただし、回復不能なエラー（再ナビゲーションの失敗など）の場合は、ループを**中断する (break)**。
-6. `finally` 句で `_close_browser()` を必ず呼び出し、ブラウザを終了させる。
+    - 成功時は進捗コールバックで完了件数を更新。
+7. `finally` 句で `_close_browser()` を必ず呼び出し、ブラウザを終了させる。
+
+### **3.5. 進捗コールバックの仕様**
+
+進捗コールバック関数は以下のシグネチャを持つ：
+
+```python
+def progress_callback(completed: int, total: int, error: dict = None):
+    """
+    進捗更新とエラー記録
+
+    Args:
+        completed: 完了件数（処理中の場合は現在のインデックス）
+        total: 総件数
+        error: エラー情報（任意）。以下のキーを含む辞書：
+            - row_number: エラー行番号（Excelの行番号、ヘッダー考慮）
+            - style_name: スタイル名
+            - field: エラーフィールド
+            - reason: エラー理由
+            - screenshot_path: スクリーンショットパス
+
+    Raises:
+        Exception: タスクが中止された場合（"タスクが中止されました"）
+    """
+```
+
+**進捗コールバックの重要な役割**:
+- データベースのタスクステータスをチェックし、`CANCELLING` ステータスの場合は例外を発生させる
+- これにより、ユーザーによるタスク中止リクエストに即座に応答できる
 
 ---
 
 ### **4. `selectors.yaml` の役割**
 
 本クラスは、すべてのセレクタを `selectors.yaml` から動的に読み込むことを前提とする。これにより、SALON BOARDのUIが変更された場合でも、**Pythonコードを一切変更することなく**、YAMLファイルの修正のみで対応が可能となる。開発者は、本仕様書で定義されたセレクタキー（例: `login.user_id_input`）を用いて、辞書からセレクタを取得して使用する。
+
+### **4.1. 現在のセレクタ構造**
 
 ```yaml
 # ==============================================================================
@@ -142,10 +175,8 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 login:
   url: "https://salonboard.com/login/"
   user_id_input: "input[name='userId']"
-  password_input:
-    primary: "#jsiPwInput"
-  login_button:
-    primary: "a.common-CNCcommon__primaryBtn.loginBtnSize"
+  password_input: "#jsiPwInput"
+  login_button: "a.common-CNCcommon__primaryBtn.loginBtnSize"
   login_form: "#idPasswordInputForm"
   dashboard_global_navi: "#globalNavi"
 
@@ -209,3 +240,122 @@ widget:
     - "[class*='_reception-Skin']"
     - "[id^='karte-']"
 ```
+
+### **4.2. セレクタ実装の重要な注意事項**
+
+#### **画像アップロードの実装**
+
+画像アップロード処理では、以下の実装が推奨される：
+
+```python
+# 画像ファイル選択
+self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
+
+# 画像処理待機（2秒固定）
+time.sleep(2)
+
+# 送信ボタンクリック（.isActiveクラスを待たない）
+self.page.locator("input.imageUploaderModalSubmitButton").click()
+
+# モーダルが閉じるのを待つ
+self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden")
+```
+
+**理由**:
+- SALON BOARDの画像アップロードUIでは、`.isActive` クラスが視覚的な装飾のみで、実際のボタンの有効/無効状態とは関連しない可能性がある
+- `.isActive` クラスの付与を待つとタイムアウトが発生する（180秒以上待っても付与されないケース）
+- 画像選択後、短時間（2秒）待機すれば送信ボタンは機能する
+
+---
+
+### **5. エラーハンドリング**
+
+### **5.1. エラーの種類**
+
+1. **致命的エラー**: ブラウザ起動失敗、ログイン失敗、データファイル読み込み失敗など。処理を即座に中断する。
+2. **スタイルごとのエラー**: 個別スタイルの処理失敗。エラーを記録して次のスタイルへ継続する。
+3. **中止リクエスト**: ユーザーによるタスク中止。進捗コールバック内で検出し、例外を発生させる。
+
+### **5.2. エラー記録**
+
+すべてのエラーは以下の情報を含む：
+- `row_number`: エラー発生行（Excelの行番号）
+- `style_name`: スタイル名
+- `field`: エラーフィールド
+- `reason`: エラー理由
+- `screenshot_path`: エラー時のスクリーンショットパス
+
+### **5.3. スクリーンショット**
+
+エラー発生時、`_take_screenshot()` メソッドが自動的に呼び出され、以下の形式でファイル名が生成される：
+
+```
+error-row{行番号}-{YYYYMMDDHHmmss}.png
+fatal-error-{YYYYMMDDHHmmss}.png
+```
+
+---
+
+### **6. タスク中止機能**
+
+### **6.1. 中止フロー**
+
+1. ユーザーがUIで「中止」ボタンをクリック
+2. APIエンドポイントがタスクステータスを `CANCELLING` に更新
+3. 進捗コールバック内で `CANCELLING` ステータスを検出
+4. `Exception("タスクが中止されました")` を発生させる
+5. `run()` メソッドの except 句でキャッチされ、処理が停止
+6. タスクステータスが `FAILURE` に更新される
+
+### **6.2. 即時中止（Force Termination）**
+
+APIレベルでは、Celeryの `control.revoke()` メソッドを使用した強制終了もサポートされている：
+
+```python
+celery_app.control.revoke(str(task_id), terminate=True, signal='SIGKILL')
+```
+
+これにより、ハングしたタスクも確実に停止できる。
+
+---
+
+### **7. Docker環境での実行**
+
+### **7.1. プラットフォーム設定**
+
+Apple Silicon (ARM64) 環境では、以下のプラットフォーム設定が必須：
+
+**Dockerfile**:
+```dockerfile
+FROM --platform=linux/amd64 python:3.11-slim
+```
+
+**docker-compose.yml**:
+```yaml
+worker:
+  platform: linux/amd64
+```
+
+**理由**: ARM64環境でのFirefox実行時にハング問題が発生するため、AMD64エミュレーションを使用する。
+
+### **7.2. パフォーマンス**
+
+- ブラウザ起動時間: 約3秒（AMD64エミュレーション使用時）
+- スタイル1件あたりの処理時間: 約10〜50秒（画像サイズに依存）
+
+---
+
+### **8. 実装チェックリスト**
+
+実装時、以下の点を確認すること：
+
+- [ ] ブラウザ起動時に自動化検知対策（User-Agent, webdriverフラグ）を適用
+- [ ] デフォルトタイムアウトを180秒に設定
+- [ ] 画像アップロードで2秒待機を実装
+- [ ] 画像送信ボタンを `.isActive` クラスなしで直接クリック
+- [ ] 進捗コールバックをtry-exceptの外で呼び出し
+- [ ] エラー時のスクリーンショット撮影を実装
+- [ ] finally句でブラウザを必ず終了
+- [ ] アップロードファイルのクリーンアップを実装
+- [ ] ロボット認証検出機能を実装
+- [ ] 中止リクエストへの応答を実装
