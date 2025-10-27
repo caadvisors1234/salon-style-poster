@@ -5,10 +5,12 @@ Playwrightを使用したブラウザ自動化
 import yaml
 import pandas as pd
 import time
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Callable
 from playwright.sync_api import sync_playwright, Page, Browser, Playwright
+from playwright_stealth import stealth_sync
 
 
 class StylePostError(Exception):
@@ -27,6 +29,9 @@ class SalonBoardStylePoster:
     TIMEOUT_IMAGE_UPLOAD = 90000  # 画像アップロード
     TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
     IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
+    HUMAN_BASE_WAIT_MS = 700  # 人間らしい基本待機（ミリ秒）
+    HUMAN_JITTER_MS = 350  # 人間らしい待機のばらつき（ミリ秒）
+    HUMAN_MIN_WAIT_MS = 250  # 最小待機時間（ミリ秒）
 
     def __init__(
         self,
@@ -50,6 +55,7 @@ class SalonBoardStylePoster:
         self.headless = headless
         self.slow_mo = slow_mo
 
+        self._random = random.Random()
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
@@ -66,18 +72,36 @@ class SalonBoardStylePoster:
             slow_mo=self.slow_mo
         )
 
-        # ブラウザコンテキスト作成（自動化検知対策）
+        # モバイル実機に近いブラウザコンテキスト作成（自動化検知対策）
         context = self.browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0"
+            viewport={"width": 412, "height": 915},  # Pixel 7 Pro 相当
+            user_agent=(
+                "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro Build/TQ3A.230805.001)"
+                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
+            ),
+            locale="ja-JP",
+            timezone_id="Asia/Tokyo"
         )
 
-        # WebDriverフラグ隠蔽
+        # WebDriverフラグやデバイス情報を人間と揃える
         context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Linux armv8l'});
+            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 5});
+            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+            if (!('ontouchstart' in window)) {
+                Object.defineProperty(window, 'ontouchstart', {value: null, writable: true});
+            }
+            if (!window.matchMedia) {
+                window.matchMedia = () => ({ matches: false, addListener: () => {}, removeListener: () => {} });
+            }
+            """
         )
 
         # 新しいページ作成
         self.page = context.new_page()
+        stealth_sync(self.page)
 
         # デフォルトタイムアウト設定（3分）
         self.page.set_default_timeout(180000)
@@ -150,6 +174,36 @@ class SalonBoardStylePoster:
 
         return False
 
+    def _human_pause(
+        self,
+        base_ms: Optional[int] = None,
+        jitter_ms: Optional[int] = None,
+        minimum_ms: Optional[int] = None
+    ) -> None:
+        """
+        操作間に人間らしい待機を挿入する
+
+        Args:
+            base_ms: 基本待機時間（ミリ秒）
+            jitter_ms: 待機時間に加える揺らぎ（ミリ秒）
+            minimum_ms: 最小待機時間（ミリ秒）
+        """
+        base = base_ms if base_ms is not None else self.HUMAN_BASE_WAIT_MS
+        jitter = jitter_ms if jitter_ms is not None else self.HUMAN_JITTER_MS
+        minimum = minimum_ms if minimum_ms is not None else self.HUMAN_MIN_WAIT_MS
+
+        base = max(0, base)
+        jitter = max(0, jitter)
+        minimum = max(0, minimum)
+
+        delay_ms = base + self._random.randint(-jitter, jitter)
+        delay_ms = max(minimum, delay_ms)
+
+        if self.page:
+            self.page.wait_for_timeout(delay_ms)
+        else:
+            time.sleep(delay_ms / 1000)
+
     def _click_and_wait(
         self,
         selector: str,
@@ -167,8 +221,11 @@ class SalonBoardStylePoster:
         click_timeout = click_timeout or self.TIMEOUT_CLICK
         load_timeout = load_timeout or self.TIMEOUT_LOAD
 
+        self._human_pause()
         self.page.locator(selector).first.click(timeout=click_timeout)
+        self._human_pause(base_ms=600, jitter_ms=200)
         self.page.wait_for_load_state("networkidle", timeout=load_timeout)
+        self._human_pause(base_ms=800, jitter_ms=250)
 
         if self._check_robot_detection():
             raise Exception("ロボット認証が検出されました")
@@ -187,13 +244,17 @@ class SalonBoardStylePoster:
 
         # ログインページへ移動
         self.page.goto(login_config["url"])
+        self._human_pause(base_ms=900, jitter_ms=300)
 
         if self._check_robot_detection():
             raise Exception("ログインページでロボット認証が検出されました")
 
         # ID/パスワード入力
+        self._human_pause()
         self.page.locator(login_config["user_id_input"]).fill(user_id)
+        self._human_pause()
         self.page.locator(login_config["password_input"]).fill(password)
+        self._human_pause(base_ms=800, jitter_ms=250)
 
         # ログインボタンクリック
         self._click_and_wait(login_config["login_button"])
@@ -344,8 +405,7 @@ class SalonBoardStylePoster:
         # 新規登録ページへ
         try:
             print("新規登録ボタンをクリック中...")
-            self.page.locator(form_config["new_style_button"]).first.click(timeout=self.TIMEOUT_CLICK)
-            self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
+            self._click_and_wait(form_config["new_style_button"])
             print("✓ 新規登録ページへ移動完了")
         except Exception as e:
             raise StylePostError(f"新規登録ページへの移動に失敗しました: {e}", self._take_screenshot("error-new-style-page"))
@@ -355,17 +415,23 @@ class SalonBoardStylePoster:
             print("画像アップロード開始...")
 
             # アップロード開始前の待機（通信の安定化）
-            print(f"  - 通信安定化のため待機中（1秒）...")
-            time.sleep(1)
+            print("  - 通信安定化のためランダム待機中...")
+            self._human_pause(base_ms=1100, jitter_ms=450, minimum_ms=850)
 
             print(f"  - アップロードエリアをクリック中...")
             self.page.locator(form_config["image"]["upload_area"]).click(timeout=self.TIMEOUT_CLICK)
+            self._human_pause(base_ms=700, jitter_ms=250, minimum_ms=400)
             print(f"  - モーダル表示待機中...")
             self.page.wait_for_selector(form_config["image"]["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=750, jitter_ms=260, minimum_ms=450)
             print(f"  - 画像ファイル選択中: {image_path}")
             self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
-            print(f"  - 画像処理待機中（{self.IMAGE_PROCESSING_WAIT}秒）...")
-            time.sleep(self.IMAGE_PROCESSING_WAIT)
+            print("  - 画像処理のためランダム待機中...")
+            self._human_pause(
+                base_ms=int(self.IMAGE_PROCESSING_WAIT * 1000),
+                jitter_ms=800,
+                minimum_ms=int(self.IMAGE_PROCESSING_WAIT * 800)
+            )
 
             # 送信ボタンの状態を確認
             submit_button = self.page.locator("input.imageUploaderModalSubmitButton")
@@ -373,17 +439,21 @@ class SalonBoardStylePoster:
 
             # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
 
             # 強制的にクリック（JavaScriptで実行）
             print(f"  - 送信ボタンクリック中（JavaScript実行）...")
             submit_button.evaluate("el => el.click()")
+            self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
 
             print(f"  - モーダル非表示待機中...")
             self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=self.TIMEOUT_IMAGE_UPLOAD)
+            self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 
             # 画像アップロード後のページ安定化待機
             print(f"  - ページ安定化待機中...")
             self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
+            self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
 
             # エラーダイアログの確認と処理
             error_dialog_selector = "div.modpopup01.sch.w400.cf.dialog"
@@ -396,7 +466,7 @@ class SalonBoardStylePoster:
                     # OKボタンをクリックして閉じる
                     ok_button = self.page.locator(f"{error_dialog_selector} a.accept")
                     ok_button.click(timeout=5000)
-                    time.sleep(0.5)
+                    self._human_pause(base_ms=650, jitter_ms=200, minimum_ms=400)
                     raise Exception(f"画像アップロードエラー: {error_message}")
             except Exception as dialog_error:
                 if "画像アップロードエラー" in str(dialog_error):
@@ -413,7 +483,9 @@ class SalonBoardStylePoster:
             print("スタイリスト名選択中...")
             stylist_select = self.page.locator(form_config["stylist_name_select"])
             stylist_select.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause()
             stylist_select.select_option(label=style_data["スタイリスト名"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=750, jitter_ms=240, minimum_ms=400)
             print("✓ スタイリスト名選択完了")
         except Exception as e:
             raise StylePostError(f"スタイリスト名の選択に失敗しました（スタイリスト: {style_data.get('スタイリスト名', '不明')}）: {e}", self._take_screenshot("error-stylist-select"))
@@ -421,9 +493,13 @@ class SalonBoardStylePoster:
         # テキスト入力
         try:
             print("テキスト入力中...")
+            self._human_pause()
             self.page.locator(form_config["stylist_comment_textarea"]).fill(style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
             self.page.locator(form_config["style_name_input"]).fill(style_data["スタイル名"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
             self.page.locator(form_config["menu_detail_textarea"]).fill(style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=750, jitter_ms=230, minimum_ms=400)
             print("✓ テキスト入力完了")
         except Exception as e:
             raise StylePostError(f"テキスト入力に失敗しました: {e}", self._take_screenshot("error-text-input"))
@@ -433,15 +509,20 @@ class SalonBoardStylePoster:
             print("カテゴリ/長さ選択中...")
             category = style_data["カテゴリ"]
             if category == "レディース":
+                self._human_pause()
                 self.page.locator(form_config["category_ladies_radio"]).click(timeout=self.TIMEOUT_CLICK)
+                self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
                 self.page.locator(form_config["length_select_ladies"]).select_option(
                     label=style_data["長さ"], timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
             elif category == "メンズ":
+                self._human_pause()
                 self.page.locator(form_config["category_mens_radio"]).click(timeout=self.TIMEOUT_CLICK)
+                self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
                 self.page.locator(form_config["length_select_mens"]).select_option(
                     label=style_data["長さ"], timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
+            self._human_pause(base_ms=750, jitter_ms=220, minimum_ms=400)
             print("✓ カテゴリ/長さ選択完了")
         except Exception as e:
             raise StylePostError(f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {style_data.get('長さ', '不明')}）: {e}", self._take_screenshot("error-category-length"))
@@ -450,15 +531,19 @@ class SalonBoardStylePoster:
         try:
             print("クーポン選択中...")
             coupon_config = form_config["coupon"]
+            self._human_pause()
             self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
             self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
 
             coupon_selector = coupon_config["item_label_template"].format(
                 name=style_data["クーポン名"]
             )
             self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
+            self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
             self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
             self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
             print("✓ クーポン選択完了")
         except Exception as e:
             raise StylePostError(f"クーポンの選択に失敗しました（クーポン: {style_data.get('クーポン名', '不明')}）: {e}", self._take_screenshot("error-coupon-select"))
@@ -474,7 +559,7 @@ class SalonBoardStylePoster:
                 if tag:
                     self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
                     self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
-                    time.sleep(0.5)  # 反映待機
+                    self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)  # 反映待機
             print("✓ ハッシュタグ入力完了")
         except Exception as e:
             raise StylePostError(f"ハッシュタグの入力に失敗しました: {e}", self._take_screenshot("error-hashtag"))
