@@ -192,7 +192,14 @@ async def get_task_status(
         )
 
     progress = (db_task.completed_items / db_task.total_items * 100) if db_task.total_items > 0 else 0
-    has_errors = bool(db_task.error_info_json)
+    error_entries = []
+    if db_task.error_info_json:
+        try:
+            error_entries = json.loads(db_task.error_info_json)
+        except json.JSONDecodeError:
+            error_entries = []
+    has_errors = len(error_entries) > 0
+    error_count = len(error_entries)
 
     return {
         "task_id": db_task.id,
@@ -201,6 +208,7 @@ async def get_task_status(
         "completed_items": db_task.completed_items,
         "progress": round(progress, 2),
         "has_errors": has_errors,
+        "error_count": error_count,
         "created_at": db_task.created_at
     }
 
@@ -263,6 +271,27 @@ async def get_error_report(
         )
 
     errors = json.loads(db_task.error_info_json)
+
+    # screenshot_pathをscreenshot_urlに変換
+    for error in errors:
+        if "screenshot_path" in error:
+            # パスをURLに変換
+            screenshot_path = error["screenshot_path"]
+            if screenshot_path:
+                # app/static/screenshots/xxx.png → /static/screenshots/xxx.png
+                if screenshot_path.startswith("app/static/"):
+                    error["screenshot_url"] = screenshot_path.replace("app/static/", "/static/")
+                elif screenshot_path.startswith("static/"):
+                    error["screenshot_url"] = "/" + screenshot_path
+                elif screenshot_path.startswith("/"):
+                    error["screenshot_url"] = screenshot_path
+                else:
+                    # 念のため/static/を追加
+                    error["screenshot_url"] = "/static/" + screenshot_path
+            else:
+                error["screenshot_url"] = ""
+        elif "screenshot_url" not in error:
+            error["screenshot_url"] = ""
 
     return {
         "task_id": db_task.id,

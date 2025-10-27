@@ -20,6 +20,7 @@ class TaskStatus(BaseModel):
     completed_items: int
     progress: float = Field(..., ge=0.0, le=100.0, description="進捗率（0.0〜100.0）")
     has_errors: bool
+    error_count: int = Field(default=0, description="エラー件数")
     created_at: datetime
 
     class Config:

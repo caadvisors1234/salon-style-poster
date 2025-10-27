@@ -4,16 +4,14 @@ Celeryタスク定義
 """
 import os
 import shutil
-from pathlib import Path
 from uuid import UUID
-from typing import List
 from celery import Task
 
 from app.core.celery_app import celery_app
 from app.db.session import SessionLocal
 from app.crud import current_task as crud_task, salon_board_setting as crud_setting
 from app.core.security import decrypt_password
-from app.services.style_poster import SalonBoardStylePoster, load_selectors
+from app.services.style_poster import SalonBoardStylePoster, StylePostError, load_selectors
 
 
 class DatabaseTask(Task):
@@ -132,11 +130,16 @@ def process_style_post_task(
         if "タスクが中止されました" in str(e) or "cancelled" in str(e).lower():
             print("タスクが正常に中止されました")
             # 中止ステータスに更新（CANCELLING → FAILURE）
-            # 注: CANCELLINGステータスのまま残すか、専用の"CANCELLED"ステータスを追加することも検討可能
             crud_task.update_task_status(db, task_uuid, "FAILURE")
         else:
             # 通常のエラー処理
             crud_task.update_task_status(db, task_uuid, "FAILURE")
+
+            # スクリーンショットパスを取得（StylePostErrorの場合）
+            screenshot_path = ""
+            if isinstance(e, StylePostError):
+                screenshot_path = e.screenshot_path
+                print(f"スクリーンショット: {screenshot_path}")
 
             # エラー情報記録（致命的エラー）
             crud_task.add_task_error(db, task_uuid, {
@@ -144,7 +147,7 @@ def process_style_post_task(
                 "style_name": "システムエラー",
                 "field": "タスク全体",
                 "reason": str(e),
-                "screenshot_path": ""
+                "screenshot_path": screenshot_path
             })
 
         raise

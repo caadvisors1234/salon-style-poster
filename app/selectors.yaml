@@ -58,11 +58,13 @@ robot_detection:
   selectors:
     - "iframe[src*='recaptcha']"
     - "div.g-recaptcha"
-    - "img[alt*='認証']"
-    - "form[action*='auth']"
+    - "div#recaptcha"
+    - ".captcha-container"
+    - ".capy-captcha"
+    - "form#captchaForm"
+    - "input[name='capy_captchakey']"
   texts:
     - "画像認証"
-    - "認証画像"
 
 widget:
   selectors:
