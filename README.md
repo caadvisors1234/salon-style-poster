@@ -219,6 +219,7 @@ docker-compose exec redis redis-cli ping
 - **docs/implementation_plan.md**: 実装計画と進捗状況
 - **docs/api_spec.md**: REST API仕様
 - **docs/database_design.md**: データベース設計
+- **AGENTS.md**: コントリビューター向けガイドライン
 
 ## 10. ライセンスとサポート
 
