@@ -192,8 +192,14 @@ async def get_task_status(
         )
 
     progress = (db_task.completed_items / db_task.total_items * 100) if db_task.total_items > 0 else 0
-    has_errors = bool(db_task.error_info_json)
-    error_count = len(db_task.error_info_json) if db_task.error_info_json else 0
+    error_entries = []
+    if db_task.error_info_json:
+        try:
+            error_entries = json.loads(db_task.error_info_json)
+        except json.JSONDecodeError:
+            error_entries = []
+    has_errors = len(error_entries) > 0
+    error_count = len(error_entries)
 
     return {
         "task_id": db_task.id,

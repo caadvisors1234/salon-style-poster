@@ -12,7 +12,23 @@
     <header class="header">
         <div class="container">
             <div class="header-content">
-                <h1 class="header-title">SALON BOARD Style Poster</h1>
+                <div class="header-bar">
+                    <h1 class="header-title">SALON BOARD Style Poster</h1>
+                    <button
+                        id="menu-toggle"
+                        class="menu-toggle"
+                        type="button"
+                        aria-label="メニューを開閉"
+                        aria-expanded="false"
+                        aria-controls="header-nav"
+                    >
+                        <span class="menu-icon">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </span>
+                    </button>
+                </div>
                 <nav class="header-nav" id="header-nav">
                     <!-- JavaScriptで動的に生成 -->
                 </nav>
@@ -29,10 +45,65 @@
 
     <script src="{{ url_for('static', path='/js/main.js') }}"></script>
     <script>
+        const headerNav = document.getElementById('header-nav');
+        const menuToggleButton = document.getElementById('menu-toggle');
+
+        if (menuToggleButton) {
+            menuToggleButton.classList.add('hidden');
+        }
+
+        function setupResponsiveNav(navElement, toggleButton) {
+            if (!navElement || !toggleButton) {
+                return null;
+            }
+
+            const openNav = () => {
+                navElement.classList.add('is-open');
+                toggleButton.setAttribute('aria-expanded', 'true');
+            };
+
+            const closeNav = () => {
+                navElement.classList.remove('is-open');
+                toggleButton.setAttribute('aria-expanded', 'false');
+            };
+
+            const syncNavWithViewport = () => {
+                if (window.innerWidth >= 768) {
+                    openNav();
+                } else {
+                    closeNav();
+                }
+            };
+
+            toggleButton.addEventListener('click', () => {
+                const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
+                if (expanded) {
+                    closeNav();
+                } else {
+                    openNav();
+                }
+            });
+
+            navElement.addEventListener('click', (event) => {
+                if (window.innerWidth >= 768) return;
+                const shouldClose = event.target.closest('.nav-link') || event.target.closest('.btn');
+                if (shouldClose) {
+                    closeNav();
+                }
+            });
+
+            window.addEventListener('resize', syncNavWithViewport);
+            syncNavWithViewport();
+
+            return { openNav, closeNav, syncNavWithViewport };
+        }
+
+        const navControls = setupResponsiveNav(headerNav, menuToggleButton);
+
         // ヘッダーナビゲーションの初期化
         (async function initHeader() {
             const token = getToken();
-            const nav = document.getElementById('header-nav');
+            const nav = headerNav;
 
             if (!nav) return;
 
@@ -41,26 +112,43 @@
                     // ユーザー情報を取得
                     const user = await apiCall('/api/v1/auth/me');
 
-                    let navHTML = `
-                        <a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>
-                        <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>
-                    `;
+                    const navLinks = [
+                        `<a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>`,
+                        `<a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>`
+                    ];
 
                     if (user.role === 'admin') {
-                        navHTML += `
-                            <a href="/admin/users" class="nav-link {% if active_page == 'admin' %}active{% endif %}">ユーザー管理</a>
-                        `;
+                        navLinks.push(`<a href="/admin/users" class="nav-link {% if active_page == 'admin' %}active{% endif %}">ユーザー管理</a>`);
                     }
 
-                    navHTML += `
-                        <span class="text-muted">|</span>
-                        <span class="text-muted">${user.email}</span>
-                        <button onclick="logout()" class="btn btn-secondary">ログアウト</button>
+                    nav.innerHTML = `
+                        <div class="nav-links">
+                            ${navLinks.join('')}
+                        </div>
+                        <div class="nav-meta">
+                            <span class="nav-email"></span>
+                            <button type="button" onclick="logout()" class="btn btn-secondary">ログアウト</button>
+                        </div>
                     `;
 
-                    nav.innerHTML = navHTML;
+                    const emailElement = nav.querySelector('.nav-email');
+                    if (emailElement) {
+                        emailElement.textContent = user.email;
+                    }
+
+                    if (menuToggleButton) {
+                        menuToggleButton.classList.remove('hidden');
+                    }
+                    if (navControls && typeof navControls.syncNavWithViewport === 'function') {
+                        navControls.syncNavWithViewport();
+                    }
+
                 } catch (error) {
                     console.error('Failed to load user info:', error);
+                    if (menuToggleButton) {
+                        menuToggleButton.classList.add('hidden');
+                    }
+                    nav.innerHTML = '';
                     // トークンが無効な場合はログインページへ
                     if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
                         removeToken();
@@ -68,6 +156,13 @@
                     }
                 }
             } else {
+                if (menuToggleButton) {
+                    menuToggleButton.classList.add('hidden');
+                }
+                nav.innerHTML = '';
+                if (navControls && typeof navControls.syncNavWithViewport === 'function') {
+                    navControls.syncNavWithViewport();
+                }
                 // ログインしていない場合はログインページへリダイレクト（ログインページ以外）
                 if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
                     window.location.href = '/login';
