@@ -77,6 +77,25 @@ services:
     networks:
       - salon_board_network
 
+  # Celery Beat
+  beat:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salon_board_beat
+    command: celery -A app.worker beat --loglevel=info
+    volumes:
+      - .:/app
+      - app_logs:/app/logs
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - salon_board_network
+
   # Nginx (リバースプロキシ)
   nginx:
     image: nginx:alpine

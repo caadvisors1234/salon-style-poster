@@ -211,6 +211,14 @@ docker-compose restart worker
 docker-compose exec redis redis-cli ping
 ```
 
+### スクリーンショットディレクトリが肥大化する
+**症状**: `app/static/screenshots` の容量が増え続ける
+
+**解決策**:
+- Celery Beat が毎日 `cleanup_screenshots` タスクを実行し、既定では「30日より古いファイルの削除」と「合計500MBを超える場合は古い順に削除」を行います。
+- 設定値は `.env` の `SCREENSHOT_RETENTION_DAYS` と `SCREENSHOT_DIR_MAX_BYTES` を変更することで調整できます。
+- 即時クリーンアップが必要な場合は、`docker-compose exec worker celery -A app.worker call cleanup_screenshots` を手動実行してください。
+
 ## 9. 関連ドキュメント
 
 プロジェクトの詳細な技術情報は以下のドキュメントを参照してください：

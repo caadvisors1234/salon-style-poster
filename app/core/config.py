@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # CORS設定
     BACKEND_CORS_ORIGINS: List[str] = []
 
+    # スクリーンショット保全ポリシー
+    SCREENSHOT_DIR: str = "app/static/screenshots"
+    SCREENSHOT_RETENTION_DAYS: int = 30
+    SCREENSHOT_DIR_MAX_BYTES: int = 524_288_000
+
     class Config:
         env_file = ".env"
         case_sensitive = True
