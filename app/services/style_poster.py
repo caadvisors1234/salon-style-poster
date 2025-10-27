@@ -26,7 +26,7 @@ class SalonBoardStylePoster:
     TIMEOUT_LOAD = 30000   # ページ読み込み
     TIMEOUT_IMAGE_UPLOAD = 90000  # 画像アップロード
     TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
-    IMAGE_PROCESSING_WAIT = 2  # 画像処理待機（秒）
+    IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
 
     def __init__(
         self,
@@ -353,6 +353,11 @@ class SalonBoardStylePoster:
         # 画像アップロード
         try:
             print("画像アップロード開始...")
+
+            # アップロード開始前の待機（通信の安定化）
+            print(f"  - 通信安定化のため待機中（1秒）...")
+            time.sleep(1)
+
             print(f"  - アップロードエリアをクリック中...")
             self.page.locator(form_config["image"]["upload_area"]).click(timeout=self.TIMEOUT_CLICK)
             print(f"  - モーダル表示待機中...")
