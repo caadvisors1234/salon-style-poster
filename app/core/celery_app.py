@@ -2,6 +2,8 @@
 Celeryアプリケーション設定
 """
 from celery import Celery
+from celery.schedules import crontab
+
 from app.core.config import settings
 
 # Celeryアプリケーション初期化
@@ -27,3 +29,11 @@ celery_app.conf.update(
 
 # タスク自動検出
 celery_app.autodiscover_tasks(["app.services"])
+
+# 定期実行タスクのスケジュール
+celery_app.conf.beat_schedule = {
+    "cleanup-screenshots-daily": {
+        "task": "cleanup_screenshots",
+        "schedule": crontab(hour=3, minute=30),
+    }
+}
