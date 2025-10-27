@@ -99,7 +99,7 @@
     <!-- タスク完了時の結果表示 -->
     <div id="task-result-section" class="hidden">
         <div id="success-message" class="alert alert-success hidden">
-            タスクが正常に完了しました！
+            タスクが完了しました！
         </div>
 
         <div id="failure-message" class="alert alert-danger hidden">
@@ -321,7 +321,7 @@
                             'タスク完了',
                             status.has_errors
                                 ? `タスクが完了しました（エラー: ${status.error_count}件）`
-                                : 'タスクが正常に完了しました',
+                                : 'タスクが完了しました',
                             { tag: 'task-complete' }
                         );
                     } else {
