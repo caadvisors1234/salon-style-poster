@@ -50,6 +50,7 @@ logs/
 # Database
 *.db
 *.sqlite
+celerybeat-schedule
 
 # Screenshots (エラー時のスクリーンショットは除外)
 app/static/screenshots/*.png
