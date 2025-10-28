@@ -9,7 +9,16 @@ import random
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Callable
-from playwright.sync_api import sync_playwright, Page, Browser, Playwright
+from playwright.sync_api import (
+    sync_playwright,
+    Page,
+    Browser,
+    Playwright,
+    BrowserContext,
+    Response,
+    Request,
+    TimeoutError as PlaywrightTimeoutError,
+)
 from playwright_stealth import stealth_sync
 
 
@@ -58,33 +67,44 @@ class SalonBoardStylePoster:
         self._random = random.Random()
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.progress_callback: Optional[Callable] = None
+        self._last_failed_upload_reason: Optional[str] = None
 
     def _start_browser(self):
         """ブラウザ起動"""
         print("ブラウザを起動中...")
         self.playwright = sync_playwright().start()
 
-        # Firefoxブラウザ起動
-        self.browser = self.playwright.firefox.launch(
-            headless=self.headless,
-            slow_mo=self.slow_mo
-        )
+        launch_kwargs = {
+            "headless": self.headless,
+            "slow_mo": self.slow_mo,
+        }
+
+        try:
+            self.browser = self.playwright.chromium.launch(channel="chrome", **launch_kwargs)
+            print("  - ChromeチャンネルのChromiumを使用します")
+        except Exception as channel_error:
+            print(f"⚠ Chromeチャンネル起動に失敗: {channel_error}。Playwright同梱Chromiumで再試行します。")
+            self.browser = self.playwright.chromium.launch(**launch_kwargs)
 
         # モバイル実機に近いブラウザコンテキスト作成（自動化検知対策）
-        context = self.browser.new_context(
+        self.context = self.browser.new_context(
             viewport={"width": 412, "height": 915},  # Pixel 7 Pro 相当
             user_agent=(
                 "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro Build/TQ3A.230805.001)"
-                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
+                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"
             ),
+            device_scale_factor=2.75,
+            is_mobile=True,
+            has_touch=True,
             locale="ja-JP",
             timezone_id="Asia/Tokyo"
         )
 
         # WebDriverフラグやデバイス情報を人間と揃える
-        context.add_init_script(
+        self.context.add_init_script(
             """
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             Object.defineProperty(navigator, 'platform', {get: () => 'Linux armv8l'});
@@ -100,7 +120,10 @@ class SalonBoardStylePoster:
         )
 
         # 新しいページ作成
-        self.page = context.new_page()
+        self.page = self.context.new_page()
+        self.page.on("requestfailed", self._handle_request_failed)
+        self.page.on("response", self._handle_response)
+        self.page.on("request", self._handle_request)
         stealth_sync(self.page)
 
         # デフォルトタイムアウト設定（3分）
@@ -110,6 +133,13 @@ class SalonBoardStylePoster:
 
     def _close_browser(self):
         """ブラウザ終了"""
+        if self.context:
+            try:
+                self.context.close()
+            except Exception as e:
+                print(f"⚠ ブラウザコンテキスト終了時に警告: {e}")
+            finally:
+                self.context = None
         if self.browser:
             self.browser.close()
         if self.playwright:
@@ -135,6 +165,157 @@ class SalonBoardStylePoster:
             print(f"✓ スクリーンショット保存: {filepath}")
             return str(filepath)
         return ""
+
+    def _handle_request_failed(self, request: Request):
+        """HTTPリクエスト失敗のモニタリング"""
+        failure_text = getattr(request, "failure", None)
+        if not failure_text:
+            return
+        url = request.url
+        if "/CNB/imgreg/imgUpload/" in url:
+            message = f"{url} -> {failure_text}"
+            self._last_failed_upload_reason = message
+            print(f"⚠ リクエスト失敗検出: {message}")
+
+    def _handle_request(self, request: Request):
+        """Akamai関連リクエストの観測"""
+        url = request.url
+        if any(token in url for token in ("bm-verify", "_abck", "akamai")):
+            print(f"    > Akamaiリクエスト観測: {url} ({request.method})")
+
+    def _handle_response(self, response: Response):
+        """Akamai関連レスポンスの観測"""
+        url = response.url
+        if any(token in url for token in ("bm-verify", "_abck", "akamai")):
+            try:
+                body_hint = ""
+                if response.status >= 400:
+                    body_hint = f", body={response.text()[:120]}"
+                print(f"    > Akamaiレスポンス観測: {url} (status={response.status}{body_hint})")
+            except Exception:
+                print(f"    > Akamaiレスポンス観測: {url} (status={response.status})")
+
+    def _get_cookie_value(self, name: str) -> Optional[str]:
+        """ブラウザコンテキストから特定Cookie値を取得"""
+        if not self.context:
+            return None
+        try:
+            cookies = self.context.cookies()
+        except Exception as e:
+            print(f"⚠ Cookie取得に失敗しました ({name}): {e}")
+            return None
+        for cookie in cookies:
+            if cookie.get("name") == name:
+                return cookie.get("value")
+        return None
+
+    def _summarize_abck_value(self, value: Optional[str]) -> str:
+        """_abckクッキーの状態を簡易表現に整形"""
+        if value is None:
+            return "not-set"
+        if "~0~" in value:
+            return "~0~ (cleared)"
+        if "~-1~" in value:
+            return "~-1~ (pending)"
+        if "~1~" in value:
+            return "~1~ (grace)"
+        suffix = value[-8:] if len(value) > 8 else value
+        return f"{suffix} (raw)"
+
+    def _stimulate_akamai_sensor(self):
+        """ユーザー操作に近いイベントでAkamaiセンサーを刺激"""
+        if not self.page:
+            return
+
+        viewport = self.page.viewport_size or {"width": 412, "height": 915}
+        width = viewport.get("width", 412)
+        height = viewport.get("height", 915)
+
+        # タッチ・スクロール・ジャイロ等のイベントを順番に送る
+        for _ in range(2):
+            x = self._random.randint(int(width * 0.2), int(width * 0.8))
+            y = self._random.randint(int(height * 0.2), int(height * 0.8))
+            try:
+                self.page.touchscreen.tap(x, y)
+            except Exception:
+                pass
+            try:
+                self.page.mouse.move(x, y, steps=5)
+                self.page.mouse.wheel(0, self._random.randint(200, 600))
+            except Exception:
+                pass
+            self.page.wait_for_timeout(200)
+
+        try:
+            self.page.evaluate(
+                """
+                () => {
+                    window.dispatchEvent(new Event('deviceorientation'));
+                    window.dispatchEvent(new Event('devicemotion'));
+                    document.body && document.body.dispatchEvent(new Event('touchstart'));
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        self._human_pause(base_ms=900, jitter_ms=260, minimum_ms=500)
+
+    def _warmup_akamai_endpoints(self):
+        """Akamaiクッキー更新を促すためのウォームアップリクエスト"""
+        if not self.context:
+            return
+        target_url = "https://salonboard.com/CNB/imgreg/imgUpload/"
+        try:
+            response = self.context.request.get(target_url)
+            print(f"    > Akamaiウォームアップリクエスト: {target_url} (status={response.status})")
+        except Exception as warmup_error:
+            print(f"⚠ Akamaiウォームアップリクエスト失敗: {warmup_error}")
+
+    def _ensure_akamai_readiness(self, attempts: int = 3, timeout_ms: int = 15000) -> bool:
+        """Akamaiセッションが安定するまで刺激と再確認を行う"""
+        for attempt in range(1, attempts + 1):
+            if self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False):
+                return True
+            print(f"    > Akamaiセンサーが未完了のため刺激 #{attempt}")
+            self._stimulate_akamai_sensor()
+            self._warmup_akamai_endpoints()
+        ready = self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False)
+        if ready:
+            return True
+        print("⚠ Akamaiセッションが安定しないまま次の処理へ進みます")
+        return False
+
+    def _wait_for_akamai_clearance(self, timeout_ms: int = 15000, *, strict: bool = True) -> bool:
+        """
+        Akamai Bot Managerの検証完了を待機
+
+        _abck Cookieの末尾が ~0~ になるまで待機し、未達なら例外を投げる
+        """
+        if not self.page:
+            return True
+
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        last_summary: Optional[str] = None
+        while time.monotonic() < deadline:
+            cookie_value = self._get_cookie_value("_abck")
+            summary = self._summarize_abck_value(cookie_value)
+            if summary != last_summary:
+                print(f"    > _abck cookie 状態: {summary}")
+                last_summary = summary
+            if cookie_value and ("~0~" in cookie_value or "~1~" in cookie_value):
+                print("  - Akamaiセッション検証完了 (_abck cookie OK)")
+                return True
+            self.page.wait_for_timeout(250)
+
+        message = (
+            f"Akamaiセッション検証が完了せず、_abck cookie が ~0~ になりませんでした "
+            f"(status={last_summary or 'unknown'})"
+        )
+        if strict:
+            raise RuntimeError(message)
+        print(f"⚠ {message}")
+        return False
 
     def _check_robot_detection(self) -> bool:
         """
@@ -301,6 +482,9 @@ class SalonBoardStylePoster:
                 screenshot_path=screenshot_path
             ) from e
 
+        print("  - ログイン後のAkamaiセッション整合性を確認中...")
+        self._ensure_akamai_readiness(attempts=2, timeout_ms=10000)
+
     def step_navigate_to_style_list_page(self, use_direct_url: bool = False):
         """
         スタイル一覧ページへ移動
@@ -413,8 +597,13 @@ class SalonBoardStylePoster:
         # 画像アップロード
         try:
             print("画像アップロード開始...")
+            self._last_failed_upload_reason = None
 
             # アップロード開始前の待機（通信の安定化）
+            print("  - Akamaiセッションの検証状態を確認中...")
+            clearance_ready = self._ensure_akamai_readiness()
+            if not clearance_ready:
+                print("    > センサー刺激後も完了しないため、アップロード処理で完了を誘発します。")
             print("  - 通信安定化のためランダム待機中...")
             self._human_pause(base_ms=1100, jitter_ms=450, minimum_ms=850)
 
@@ -424,8 +613,39 @@ class SalonBoardStylePoster:
             print(f"  - モーダル表示待機中...")
             self.page.wait_for_selector(form_config["image"]["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=750, jitter_ms=260, minimum_ms=450)
-            print(f"  - 画像ファイル選択中: {image_path}")
-            self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
+            print(f"  - 画像ファイル選択準備中: {image_path}")
+
+            pre_upload_predicate = lambda response: (
+                "/CNB/imgreg/imgUpload/" in response.url
+                and "doUpload" not in response.url
+                and response.request.method.upper() == "POST"
+            )
+
+            pre_upload_response: Optional[Response] = None
+            try:
+                with self.page.expect_response(pre_upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as pre_upload_waiter:
+                    self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
+                pre_upload_response = pre_upload_waiter.value
+                print(f"  - 画像プリアップロードレスポンス取得: status={pre_upload_response.status}, url={pre_upload_response.url}")
+            except PlaywrightTimeoutError:
+                reason = self._last_failed_upload_reason or "imgUploadプレリクエストのレスポンス待機がタイムアウトしました"
+                submit_button_ready = False
+                try:
+                    self.page.locator(form_config["image"]["submit_button_active"]).wait_for(state="visible", timeout=2000)
+                    submit_button_ready = True
+                except PlaywrightTimeoutError:
+                    submit_button_ready = False
+                if submit_button_ready:
+                    print(f"⚠ {reason}。UI上は画像が選択済みのため続行します。")
+                else:
+                    raise Exception(reason)
+
+            if pre_upload_response and pre_upload_response.status != 200:
+                abck_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                raise Exception(
+                    f"画像プリアップロードAPIが異常終了しました (status={pre_upload_response.status}, akamai={abck_status})"
+                )
+
             print("  - 画像処理のためランダム待機中...")
             self._human_pause(
                 base_ms=int(self.IMAGE_PROCESSING_WAIT * 1000),
@@ -434,25 +654,82 @@ class SalonBoardStylePoster:
             )
 
             # 送信ボタンの状態を確認
-            submit_button = self.page.locator("input.imageUploaderModalSubmitButton")
+            submit_button = self.page.locator(form_config["image"]["submit_button_active"])
             print(f"  - 送信ボタン確認中...")
 
             # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
 
+            print("  - Akamaiセッションを再度確認中...")
+            self._ensure_akamai_readiness(timeout_ms=20000)
+
             # 強制的にクリック（JavaScriptで実行）
             print(f"  - 送信ボタンクリック中（JavaScript実行）...")
-            submit_button.evaluate("el => el.click()")
+            upload_predicate = lambda response: (
+                "/CNB/imgreg/imgUpload/doUpload" in response.url
+                and response.request.method.upper() == "POST"
+            )
+
+            upload_response: Optional[Response] = None
+            try:
+                with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
+                    submit_button.evaluate("el => el.click()")
+                upload_response = upload_waiter.value
+                print(f"  - 画像アップロードレスポンス取得: status={upload_response.status}, url={upload_response.url}")
+            except PlaywrightTimeoutError:
+                reason = self._last_failed_upload_reason or "imgUpload/doUpload のレスポンス待機がタイムアウトしました"
+                modal_hidden = False
+                try:
+                    self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=2000)
+                    modal_hidden = True
+                except PlaywrightTimeoutError:
+                    modal_hidden = False
+                if modal_hidden:
+                    print(f"⚠ {reason}。モーダルは既に閉じているため続行します。")
+                else:
+                    raise Exception(reason)
+
+            if upload_response and upload_response.status != 200:
+                body_preview = ""
+                try:
+                    body_preview = upload_response.text()[:200]
+                except Exception:
+                    pass
+                extra = ""
+                if self._last_failed_upload_reason:
+                    extra = f", request_failure={self._last_failed_upload_reason}"
+                akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                raise Exception(
+                    f"画像アップロードAPIが失敗しました (status={upload_response.status}, preview={body_preview}, akamai={akamai_status}{extra})"
+                )
+
             self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
 
             print(f"  - モーダル非表示待機中...")
-            self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=self.TIMEOUT_IMAGE_UPLOAD)
+            try:
+                self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=self.TIMEOUT_IMAGE_UPLOAD)
+            except PlaywrightTimeoutError as modal_timeout:
+                try:
+                    self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=1000)
+                    print("⚠ モーダル非表示待機がタイムアウトしましたが既に閉じています。")
+                except PlaywrightTimeoutError:
+                    print("⚠ モーダル非表示待機がタイムアウトしましたが既に閉じています。")
+                    akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                    raise Exception(
+                        f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD}, akamai={akamai_status})"
+                    ) from modal_timeout
             self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 
             # 画像アップロード後のページ安定化待機
             print(f"  - ページ安定化待機中...")
-            self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
+            except PlaywrightTimeoutError as load_timeout:
+                akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                raise Exception(
+                    f"画像アップロード後のページが安定しません (timeout={self.TIMEOUT_LOAD}, akamai={akamai_status})"
+                ) from load_timeout
             self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
 
             # エラーダイアログの確認と処理
