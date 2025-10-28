@@ -35,7 +35,7 @@ class SalonBoardStylePoster:
     # タイムアウト定数（ミリ秒）
     TIMEOUT_CLICK = 10000  # クリック操作
     TIMEOUT_LOAD = 30000   # ページ読み込み
-    TIMEOUT_IMAGE_UPLOAD = 90000  # 画像アップロード
+    TIMEOUT_IMAGE_UPLOAD = 60000  # 画像アップロード
     TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
     IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
     HUMAN_BASE_WAIT_MS = 700  # 人間らしい基本待機（ミリ秒）
@@ -615,36 +615,14 @@ class SalonBoardStylePoster:
             self._human_pause(base_ms=750, jitter_ms=260, minimum_ms=450)
             print(f"  - 画像ファイル選択準備中: {image_path}")
 
-            pre_upload_predicate = lambda response: (
-                "/CNB/imgreg/imgUpload/" in response.url
-                and "doUpload" not in response.url
-                and response.request.method.upper() == "POST"
-            )
-
-            pre_upload_response: Optional[Response] = None
+            self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
             try:
-                with self.page.expect_response(pre_upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as pre_upload_waiter:
-                    self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
-                pre_upload_response = pre_upload_waiter.value
-                print(f"  - 画像プリアップロードレスポンス取得: status={pre_upload_response.status}, url={pre_upload_response.url}")
-            except PlaywrightTimeoutError:
-                reason = self._last_failed_upload_reason or "imgUploadプレリクエストのレスポンス待機がタイムアウトしました"
-                submit_button_ready = False
-                try:
-                    self.page.locator(form_config["image"]["submit_button_active"]).wait_for(state="visible", timeout=2000)
-                    submit_button_ready = True
-                except PlaywrightTimeoutError:
-                    submit_button_ready = False
-                if submit_button_ready:
-                    print(f"⚠ {reason}。UI上は画像が選択済みのため続行します。")
-                else:
-                    raise Exception(reason)
-
-            if pre_upload_response and pre_upload_response.status != 200:
-                abck_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
-                raise Exception(
-                    f"画像プリアップロードAPIが異常終了しました (status={pre_upload_response.status}, akamai={abck_status})"
+                self.page.locator(form_config["image"]["submit_button_active"]).wait_for(
+                    state="visible",
+                    timeout=self.TIMEOUT_IMAGE_UPLOAD
                 )
+            except PlaywrightTimeoutError:
+                raise Exception("画像選択後に送信ボタンが有効になりませんでした")
 
             print("  - 画像処理のためランダム待機中...")
             self._human_pause(
@@ -660,9 +638,6 @@ class SalonBoardStylePoster:
             # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
-
-            print("  - Akamaiセッションを再度確認中...")
-            self._ensure_akamai_readiness(timeout_ms=20000)
 
             # 強制的にクリック（JavaScriptで実行）
             print(f"  - 送信ボタンクリック中（JavaScript実行）...")
