@@ -23,7 +23,7 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 | `headless` | `bool` | ヘッドレスモードで実行するかどうか。 |
 | `slow_mo` | `int` | 操作間の遅延時間（ミリ秒）。 |
 | `playwright` | `Playwright` | Playwrightのメインインスタンス。 |
-| `browser` | `Browser` | 起動したブラウザのインスタンス（Firefox）。 |
+| `browser` | `Browser` | 起動したChromiumベースのブラウザインスタンス。 |
 | `page` | `Page` | 現在操作中のブラウザページのインスタンス。 |
 | `progress_callback` | `Callable` | （オプション）進捗を呼び出し元に通知するためのコールバック関数。 |
 
@@ -40,82 +40,53 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 
 - **ブラウザ起動 (`_start_browser`)**:
     - `sync_playwright().start()` でPlaywrightを起動する。
-    - `playwright.firefox.launch()` でFirefoxブラウザを起動する。
-    - `browser.new_context()` で新しいブラウザコンテキストを作成し、以下の自動化検知対策を**必ず**適用する。
-        - **User-Agent**: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0` に固定する。
-        - **WebDriverフラグ**: `context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")` を実行し、`navigator.webdriver` プロパティを隠蔽する。
-    - `context.new_page()` で新しいページを作成し、`self.page` に格納する。
-    - `page.set_default_timeout()` で、デフォルトのタイムアウトを `180000` ミリ秒（3分）に設定する。
+    - `playwright.chromium.launch(channel="chrome", **launch_kwargs)` でChromeチャンネルのChromiumを優先的に起動し、失敗した場合は `playwright.chromium.launch(**launch_kwargs)` にフォールバックする。
+    - `browser.new_context(...)` では Pixel 7 Pro 相当のモバイル環境を再現するため、以下のパラメータを設定する：`viewport={"width": 412, "height": 915}`、モバイル用User-Agent、`device_scale_factor=2.75`、`is_mobile=True`、`has_touch=True`、`locale="ja-JP"`、`timezone_id="Asia/Tokyo"`。
+    - `context.add_init_script(...)` で `navigator.webdriver` の隠蔽や `platform`・`maxTouchPoints` の補正、`ontouchstart`・`matchMedia` のポリフィルを適用する。
+    - `context.new_page()` でページを生成し、`self.page` に格納した後、`requestfailed`・`response`・`request` イベントリスナーを登録し `stealth_sync(self.page)` を適用する。
+    - `page.set_default_timeout(180000)` を設定し、全操作のデフォルトタイムアウトを3分に統一する。
 - **ブラウザ終了 (`_close_browser`)**:
-    - `browser.close()` と `playwright.stop()` を呼び出し、リソースを安全に解放する。
+    - `context.close()` → `browser.close()` → `playwright.stop()` の順でクリーンアップし、各ステップで例外が発生した場合もログを残しつつリソースを解放する。
 
 ### **3.2. 汎用ヘルパーメソッド**
 
-- **スクリーンショット撮影 (`_take_screenshot`)**:
-    - エラー発生時に呼び出される。
-    - 現在の日時を含む一意のファイル名を生成し、指定された `screenshot_dir` に `page.screenshot()` でPNG画像を保存する。
-- **ロボット認証検出 (`_check_robot_detection`)**:
-    - ページ遷移のたびに呼び出される。
-    - `selectors.yaml` の `robot_detection` セクションに定義されたテキスト（`画像認証`など）やセレクタ（`div.g-recaptcha`など）がページ内に存在するかを `page.locator().count()` で確認する。
-    - いずれかが検出された場合は `True` を返し、エラーログを出力する。
-- **クリック＆待機 (`_click_and_wait`)**:
-    - ページ遷移を伴うクリック操作で汎用的に使用する。
-    - 引数で渡されたセレクタに対し、`.first.click()` を実行する。`.first` を使用することで、セレクタが複数の要素に一致した場合でもエラーにならず、最初の要素を確実にクリックできる。
-    - クリック後、`page.wait_for_load_state("networkidle")` を実行し、ネットワーク通信が落ち着くまで待機する。これにより、次の操作がページ読み込み完了前に行われることを防ぐ。
-    - 待機完了後、`_check_robot_detection()` を呼び出す。
+- **スクリーンショット撮影 (`_take_screenshot`)**: エラー発生時に呼び出され、日時を含んだファイル名で `screenshot_dir` 配下へPNGを保存する。
+- **ロボット認証検出 (`_check_robot_detection`)**: セレクタおよびテキストの両方を対象に `locator.first.is_visible()` で表示状態を確認し、検出時はスクリーンショットを採取したうえで `True` を返す。
+- **人間的なウェイト (`_human_pause`)**: 基本待機時間・ゆらぎ・最小値を元にランダムな遅延を挿入し、Akamai Bot Managerへのヒットを避ける。
+- **Akamai対策 (`_stimulate_akamai_sensor`, `_warmup_akamai_endpoints`, `_ensure_akamai_readiness`, `_wait_for_akamai_clearance`)**: タップ／スクロールイベントやバックグラウンドリクエストで `_abck` Cookie の状態を `~0~` または `~1~` へ誘導し、画像アップロード前後でセッションを安定させる。
+- **クリック＆待機 (`_click_and_wait`)**: 操作前後に `_human_pause()` を挟みつつ `.first.click()`、`wait_for_load_state("networkidle")` を順に実行し、遷移後は `_check_robot_detection()` を呼び出す。
+- **復旧ナビゲーション (`_navigate_back_to_style_list_after_error`)**: 通常ナビゲーションが失敗した場合に直接URL遷移へフォールバックするロジックを提供する。
 
 ### **3.3. 主要ステップメソッド**
 
 ### **3.3.1. `step_login`**
 
-1. `page.goto()` でログインURLへ移動する。
-2. `_check_robot_detection()` を実行する。
-3. `user_id_input` と `password_input` セレクタの要素に `fill()` でIDとパスワードを入力する。
-4. `_click_and_wait()` を使用して `login_button` をクリックする。
-5. **サロン選択ロジック**:
-    - `salon_list_table` セレクタの存在を確認する。存在する場合、複数店舗アカウントと判断する。
-    - `salon_list_row` で全店舗の行を取得し、ループ処理を行う。
-    - 各行から `salon_id_cell` と `salon_name_cell` のテキストを取得する。
-    - 引数 `salon_info` の `id` または `name` と一致する行を探し、その行のリンク (`a` タグ) をクリックする。
-    - `page.wait_for_load_state("networkidle")` でダッシュボードへの遷移を待つ。
-6. `dashboard_global_navi` セレクタの存在を `wait_for_selector()` で確認し、ログイン成功を確定する。
+1. `page.goto()` でログインURLへ移動し、ロボット認証を即座に確認する。
+2. `user_id_input` と `password_input` へ `fill()` で認証情報を入力し、`_click_and_wait()` で `login_button` を押下する。
+3. 複数店舗アカウントの場合は `salon_list_table` の行を走査し、`salon_info` の `id` または `name` と一致するサロンを選択する。
+4. `dashboard_global_navi` の表示を `wait_for_selector()` で確認しログイン成功を確定する。
+5. ログイン直後に `_ensure_akamai_readiness(attempts=2, timeout_ms=10000)` を呼び出し、Bot Managerの検証状態を安定させる。
 
 ### **3.3.2. `step_navigate_to_style_list_page`**
 
-- `run()` メソッドの**ループ開始前に一度だけ**呼び出される。
-1. `_click_and_wait()` を使用して `navigation.keisai_kanri` （掲載管理）をクリックする。
-2. `_click_and_wait()` を使用して `navigation.style` （スタイル管理）をクリックする。
+- `run()` メソッドのループ開始前、およびエラー後の復旧時に呼び出される。
+1. 通常ルートでは `_click_and_wait()` を2回呼び出し、掲載管理 → スタイル管理の順で画面遷移する。
+2. ナビゲーションに失敗した場合は `use_direct_url=True` で呼び出し、現在のベースURLから `/CNB/draft/styleList/` へ直接遷移する。
 
 ### **3.3.3. `step_process_single_style`**
 
-- `run()` メソッドの**ループ内でスタイル1件ごと**に呼び出される。
-1. **新規登録ページへ**: `_click_and_wait()` を使用して `style_form.new_style_button` （スタイル新規追加）をクリックする。
+- `run()` メソッドのループ内でスタイル1件ごとに実行される。
+1. **新規登録ページへ**: `_click_and_wait()` で `style_form.new_style_button` を押下し、遷移後のロボット認証を確認する。
 2. **画像アップロード**:
-    - `style_form.image.upload_area` をクリックしてモーダルを開く。
-    - `wait_for_selector()` で `modal_container` の表示を待つ。
-    - `file_input` に `set_input_files()` で画像パスを設定する。
-    - **重要**: 画像処理のため `time.sleep(2)` で2秒待機する。
-    - **直接クリック**: `.isActive` クラスの有無に関わらず、`input.imageUploaderModalSubmitButton` セレクタで送信ボタンを直接クリックする。
-    - `wait_for_selector(state="hidden")` でモーダルが閉じるのを待つ。
-3. **フォーム入力**:
-    - **スタイリスト名**: `stylist_name_select` に `select_option(label=...)` で選択。
-    - **テキスト入力**: `stylist_comment_textarea`, `style_name_input`, `menu_detail_textarea` に `fill()` で入力。
-    - **カテゴリ/長さ**: `category_..._radio` をクリック後、対応する `length_select_...` を `select_option(label=...)` で選択。
-4. **クーポン選択**:
-    - `coupon.select_button` をクリックしてモーダルを開く。
-    - `coupon.modal_container` の表示を待つ。
-    - `coupon.item_label_template` にクーポン名を埋め込んだ動的セレクタを生成し、`.first.click()` で該当クーポンを選択する。
-    - `coupon.setting_button` をクリックする。
-    - モーダルが閉じるのを待つ。
-5. **ハッシュタグ入力**:
-    - カンマ区切りのハッシュタグを分割し、ループ処理を行う。
-    - `hashtag.input_area` に `fill()` でタグを入力。
-    - `hashtag.add_button` をクリック。
-    - `time.sleep(0.5)` で反映を待つ。
-6. **登録完了**:
-    - `_click_and_wait()` で `register_button` をクリックする。
-    - `wait_for_selector()` で `complete_text` （「登録が完了しました。」）の表示を待つ。
-    - `_click_and_wait()` で `back_to_list_button` をクリックし、スタイル一覧画面に戻る。
+    - 事前に `_ensure_akamai_readiness()` と `_human_pause()` を挟み、通信を安定化させる。
+    - `upload_area` をクリックしモーダルを開いた後、`file_input.set_input_files(image_path)` で画像を選択する。
+    - `submit_button_active` が `visible` になるまで `wait_for()` し、`page.expect_response()` で `imgUpload` エンドポイントを監視しながら送信ボタンをクリックする。
+    - レスポンスステータスが200以外の場合や `_abck` Cookie が異常値の場合は例外を投げ、必要に応じて `_last_failed_upload_reason` をログへ出力する。
+    - モーダルが閉じるまで待機し、エラーダイアログが表示された際はメッセージを取得して `StylePostError` を送出する。
+3. **フォーム入力**: スタイリスト名、コメント、スタイル名、メニュー詳細を順に入力し、カテゴリ・長さは性別ごとにラジオボタンとセレクトボックスを組み合わせて設定する。
+4. **クーポン選択**: モーダルを開いたのち、`item_label_template` を利用した `locator` で対象クーポンを選択し、設定ボタンで確定する。
+5. **ハッシュタグ入力**: カンマ区切りで分割したタグを `input_area` に入力し、`add_button` をクリックするたびに `_human_pause()` で反映を待つ。
+6. **登録完了**: `_click_and_wait()` で `register_button` を押下し、「登録が完了しました。」の表示を確認した後、`back_to_list_button` で一覧画面へ戻る。戻り操作が失敗した場合は `_navigate_back_to_style_list_after_error()` が後続でリトライする。
 
 ### **3.4. 統括メソッド (`run`)**
 
@@ -228,11 +199,13 @@ robot_detection:
   selectors:
     - "iframe[src*='recaptcha']"
     - "div.g-recaptcha"
-    - "img[alt*='認証']"
-    - "form[action*='auth']"
+    - "div#recaptcha"
+    - ".captcha-container"
+    - ".capy-captcha"
+    - "form#captchaForm"
+    - "input[name='capy_captchakey']"
   texts:
     - "画像認証"
-    - "認証画像"
 
 widget:
   selectors:
@@ -245,26 +218,36 @@ widget:
 
 #### **画像アップロードの実装**
 
-画像アップロード処理では、以下の実装が推奨される：
+画像アップロード処理では、Akamaiセッションの安定化とレスポンス監視を組み合わせた以下の実装を行う：
 
 ```python
 # 画像ファイル選択
 self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
 
-# 画像処理待機（2秒固定）
-time.sleep(2)
+# 送信ボタンが有効化されるまで待機（.isActive クラス付与を監視）
+submit_button = self.page.locator(form_config["image"]["submit_button_active"])
+submit_button.wait_for(state="visible", timeout=self.TIMEOUT_IMAGE_UPLOAD)
 
-# 送信ボタンクリック（.isActiveクラスを待たない）
-self.page.locator("input.imageUploaderModalSubmitButton").click()
+# imgUpload リクエストのレスポンスを監視しながら送信
+def upload_predicate(response):
+    return "/CNB/imgreg/imgUpload/" in response.url
+
+with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
+    submit_button.evaluate("el => el.click()")
+upload_response = upload_waiter.value
 
 # モーダルが閉じるのを待つ
-self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden")
+self.page.wait_for_selector(
+    form_config["image"]["modal_container"],
+    state="hidden",
+    timeout=self.TIMEOUT_IMAGE_UPLOAD,
+)
 ```
 
 **理由**:
-- SALON BOARDの画像アップロードUIでは、`.isActive` クラスが視覚的な装飾のみで、実際のボタンの有効/無効状態とは関連しない可能性がある
-- `.isActive` クラスの付与を待つとタイムアウトが発生する（180秒以上待っても付与されないケース）
-- 画像選択後、短時間（2秒）待機すれば送信ボタンは機能する
+- `.isActive` クラスの表示を待つことで、フロントエンドがファイル読み込みを完了したことを保証する。
+- `expect_response` でAPIレスポンスを捕捉し、ステータスコードや本文をログに残すことで通信エラー時のトラブルシュートが容易になる。
+- モーダルのクローズ待機にタイムアウトを設け、未完了時は `_abck` Cookie の状態を含めた詳細なエラーを発生させる。
 
 ---
 
@@ -321,27 +304,17 @@ celery_app.control.revoke(str(task_id), terminate=True, signal='SIGKILL')
 
 ### **7. Docker環境での実行**
 
-### **7.1. プラットフォーム設定**
+### **7.1. ブラウザバイナリ管理**
 
-Apple Silicon (ARM64) 環境では、以下のプラットフォーム設定が必須：
+- デフォルトでは `channel="chrome"` を指定しているため、ホスト環境またはDockerイメージに Google Chrome Stable をインストールしておくことを推奨する。
+- Chrome が存在しない場合は Playwright 同梱の Chromium を自動的にフォールバックとして利用する。コンテナビルド時には `playwright install chromium` を実行しておくと確実。
+- 追加の起動フラグは不要だが、GPU を利用できない環境では `--disable-gpu` を `launch_kwargs` に渡すと安定するケースがある。
 
-**Dockerfile**:
-```dockerfile
-FROM --platform=linux/amd64 python:3.11-slim
-```
+### **7.2. メモリ / パフォーマンスの目安**
 
-**docker-compose.yml**:
-```yaml
-worker:
-  platform: linux/amd64
-```
-
-**理由**: ARM64環境でのFirefox実行時にハング問題が発生するため、AMD64エミュレーションを使用する。
-
-### **7.2. パフォーマンス**
-
-- ブラウザ起動時間: 約3秒（AMD64エミュレーション使用時）
-- スタイル1件あたりの処理時間: 約10〜50秒（画像サイズに依存）
+- ブラウザ起動: 約3〜4秒（Chromeチャンネル起動時）。
+- スタイル1件の処理: 約10〜50秒（画像アップロードサイズとAkamai検証状況に依存）。
+- Dockerで実行する場合は `PLAYWRIGHT_BROWSERS_PATH=0` を設定し、ブラウザキャッシュをイメージ内に固定化すると起動時間が安定する。
 
 ---
 
@@ -349,10 +322,10 @@ worker:
 
 実装時、以下の点を確認すること：
 
-- [ ] ブラウザ起動時に自動化検知対策（User-Agent, webdriverフラグ）を適用
-- [ ] デフォルトタイムアウトを180秒に設定
-- [ ] 画像アップロードで2秒待機を実装
-- [ ] 画像送信ボタンを `.isActive` クラスなしで直接クリック
+- [ ] ChromeチャンネルのChromium起動を優先し、フォールバック時も自動化検知対策（User-Agent, webdriver隠蔽）を維持
+- [ ] Pixel 7 Pro相当のモバイルコンテキストと `playwright_stealth` を適用
+- [ ] デフォルトタイムアウトを180秒に設定し、主要操作前後に `_human_pause()` を挿入
+- [ ] 画像アップロードで `.isActive` の可視化を待ち、`expect_response` で `imgUpload` API を監視
 - [ ] 進捗コールバックをtry-exceptの外で呼び出し
 - [ ] エラー時のスクリーンショット撮影を実装
 - [ ] finally句でブラウザを必ず終了
