@@ -70,6 +70,17 @@
                 <span id="progress-items">0 / 0 件完了</span>
                 <span id="progress-status">処理中...</span>
             </div>
+            <div id="progress-detail" class="progress-detail hidden">
+                <div class="progress-detail-header">
+                    <span id="progress-stage" class="progress-stage-label"></span>
+                    <span id="progress-updated-at" class="progress-detail-timestamp text-muted"></span>
+                </div>
+                <div id="progress-message" class="progress-detail-message text-muted"></div>
+                <div id="progress-style-wrapper" class="progress-style-info hidden">
+                    <span class="progress-style-label">スタイル</span>
+                    <span id="progress-style-name" class="progress-style-name"></span>
+                </div>
+            </div>
         </div>
 
         <!-- エラーサマリー（処理中） -->
@@ -135,6 +146,67 @@
     let currentUser = null;
     let lastErrorCount = 0;
     let notificationPermission = 'default';
+
+    const stageLabelMap = {
+        BROWSER_STARTING: 'ブラウザ起動準備',
+        BROWSER_READY: 'ブラウザ起動完了',
+        LOGIN_COMPLETED: 'ログイン完了',
+        DATA_READY: 'データ読み込み完了',
+        NAVIGATED: '投稿準備完了',
+        STYLE_PROCESSING: 'スタイル処理中',
+        STYLE_COMPLETED: 'スタイル処理完了',
+        STYLE_ERROR: 'スタイル処理エラー',
+        SUMMARY: '処理完了',
+        CANCELLING: 'キャンセル処理',
+        CANCELLED: 'キャンセル済み',
+        FAILED: 'タスク失敗',
+        COMPLETED: 'タスク完了'
+    };
+
+    function resolveStageLabel(detail) {
+        if (!detail) return '';
+        if (detail.stage_label) return detail.stage_label;
+        if (detail.stage && stageLabelMap[detail.stage]) {
+            return stageLabelMap[detail.stage];
+        }
+        return '進捗情報';
+    }
+
+    function formatDetailTimestamp(isoString) {
+        if (!isoString) return '';
+        const parsed = new Date(isoString);
+        if (Number.isNaN(parsed.getTime())) return '';
+        return parsed.toLocaleString('ja-JP');
+    }
+
+    function deriveStatusLabel(status) {
+        if (!status) return '状態取得中...';
+        const detailStatus = status.detail?.status;
+
+        if (status.status === 'PROCESSING') {
+            if (detailStatus === 'error') return 'エラーを処理中...';
+            if (detailStatus === 'working') return '処理中...';
+            if (detailStatus === 'info') return '準備中...';
+            return '処理中...';
+        }
+
+        if (status.status === 'CANCELLING') {
+            return '中止要求を処理中...';
+        }
+
+        if (status.status === 'SUCCESS') {
+            return '完了しました';
+        }
+
+        if (status.status === 'FAILURE') {
+            if (detailStatus === 'cancelled') {
+                return 'ユーザーが中止しました';
+            }
+            return 'エラーで停止しました';
+        }
+
+        return '状態取得中...';
+    }
 
     // ページロード時の初期化
     document.addEventListener('DOMContentLoaded', async () => {
@@ -235,6 +307,12 @@
         document.getElementById('task-progress-section').classList.remove('hidden');
         document.getElementById('task-result-section').classList.add('hidden');
 
+        const cancelButton = document.getElementById('cancel-task-btn');
+        if (cancelButton) {
+            cancelButton.disabled = false;
+            cancelButton.textContent = 'タスクを中止';
+        }
+
         updateProgress(status);
     }
 
@@ -244,12 +322,19 @@
         document.getElementById('task-progress-section').classList.add('hidden');
         document.getElementById('task-result-section').classList.remove('hidden');
 
+        const successMessage = document.getElementById('success-message');
+        const failureMessage = document.getElementById('failure-message');
+        successMessage.classList.add('hidden');
+        failureMessage.classList.add('hidden');
+        failureMessage.textContent = 'タスクがエラーにより中断されました';
+
         if (status.status === 'SUCCESS') {
-            document.getElementById('success-message').classList.remove('hidden');
-            document.getElementById('failure-message').classList.add('hidden');
+            successMessage.classList.remove('hidden');
+        } else if (status.detail?.status === 'cancelled') {
+            failureMessage.textContent = 'ユーザー操作によりタスクを中止しました';
+            failureMessage.classList.remove('hidden');
         } else {
-            document.getElementById('success-message').classList.add('hidden');
-            document.getElementById('failure-message').classList.remove('hidden');
+            failureMessage.classList.remove('hidden');
         }
 
         // エラーレポート取得
@@ -269,13 +354,43 @@
         const progressStatus = document.getElementById('progress-status');
         const taskId = document.getElementById('task-id');
         const taskCreatedAt = document.getElementById('task-created-at');
+        const progressDetail = document.getElementById('progress-detail');
+        const progressStage = document.getElementById('progress-stage');
+        const progressUpdatedAt = document.getElementById('progress-updated-at');
+        const progressMessage = document.getElementById('progress-message');
+        const progressStyleWrapper = document.getElementById('progress-style-wrapper');
+        const progressStyleName = document.getElementById('progress-style-name');
 
         progressBar.style.width = `${progress}%`;
         progressText.textContent = `${progress}%`;
         progressItems.textContent = `${status.completed_items} / ${status.total_items} 件完了`;
-        progressStatus.textContent = status.status === 'CANCELLING' ? '中止中...' : '処理中...';
+        progressStatus.textContent = deriveStatusLabel(status);
         taskId.textContent = status.task_id;
         taskCreatedAt.textContent = new Date(status.created_at).toLocaleString('ja-JP');
+
+        const detail = status.detail;
+        if (detail) {
+            progressDetail.classList.remove('hidden');
+            progressStage.textContent = resolveStageLabel(detail);
+            progressMessage.textContent = detail.message || '';
+            const timestampText = formatDetailTimestamp(detail.updated_at);
+            progressUpdatedAt.textContent = timestampText ? `更新: ${timestampText}` : '';
+
+            if (detail.style_name) {
+                progressStyleWrapper.classList.remove('hidden');
+                progressStyleName.textContent = detail.style_name;
+            } else {
+                progressStyleWrapper.classList.add('hidden');
+                progressStyleName.textContent = '';
+            }
+        } else {
+            progressDetail.classList.add('hidden');
+            progressStage.textContent = '';
+            progressMessage.textContent = '';
+            progressUpdatedAt.textContent = '';
+            progressStyleWrapper.classList.add('hidden');
+            progressStyleName.textContent = '';
+        }
 
         // エラーサマリー表示（処理中）
         const errorSummaryProgress = document.getElementById('error-summary-progress');
@@ -325,10 +440,11 @@
                             { tag: 'task-complete' }
                         );
                     } else {
+                        const isCancelled = status.detail?.status === 'cancelled';
                         sendNotification(
-                            'タスク失敗',
-                            'タスクがエラーにより中断されました',
-                            { tag: 'task-failed' }
+                            isCancelled ? 'タスク中止' : 'タスク失敗',
+                            isCancelled ? 'タスクをキャンセルしました' : 'タスクがエラーにより中断されました',
+                            { tag: isCancelled ? 'task-cancelled' : 'task-failed' }
                         );
                     }
 
@@ -469,18 +585,26 @@
     });
 
     // タスク中止ボタン
-    document.getElementById('cancel-task-btn').addEventListener('click', async () => {
+    document.getElementById('cancel-task-btn').addEventListener('click', async (event) => {
+        const cancelButton = event.currentTarget;
+        const originalText = cancelButton.textContent;
+
         if (!confirm('本当にタスクを即座に中止しますか？\n実行中の処理は強制終了されます。')) {
             return;
         }
 
+        cancelButton.disabled = true;
+        cancelButton.textContent = '中止リクエスト送信中...';
+
         try {
             await apiCall('/api/v1/tasks/cancel', { method: 'POST' });
-            showAlert('タスクを強制終了しました', 'success');
-            // ページをリロードして状態を更新
-            setTimeout(() => location.reload(), 1000);
+            showAlert('タスクの中止を要求しました', 'info');
+            await checkTaskStatus();
         } catch (error) {
             showAlert(error.message, 'danger');
+        } finally {
+            cancelButton.disabled = false;
+            cancelButton.textContent = originalText;
         }
     });
 

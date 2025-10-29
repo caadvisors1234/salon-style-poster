@@ -7,7 +7,7 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from celery import Task
@@ -39,6 +39,10 @@ class DatabaseTask(Task):
             self._db = None
 
 
+class TaskCancelledError(Exception):
+    """ユーザーによってキャンセルされたことを示す例外"""
+
+
 @celery_app.task(bind=True, base=DatabaseTask, name="process_style_post")
 def process_style_post_task(
     self,
@@ -61,6 +65,59 @@ def process_style_post_task(
     """
     task_uuid = UUID(task_id)
     db = self.db
+    db_task_snapshot = crud_task.get_task_by_id(db, task_uuid)
+    total_items = db_task_snapshot.total_items if db_task_snapshot else 0
+
+    def utc_now_iso() -> str:
+        """現在時刻（UTC）のISO8601文字列を返す"""
+        return datetime.now(timezone.utc).isoformat()
+
+    def record_detail(
+        stage: str,
+        stage_label: str,
+        message: str,
+        *,
+        status_text: str = "running",
+        current_index: Optional[int] = None,
+        total: Optional[int] = None,
+        style_name: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """進捗詳細情報をDBに保存"""
+        detail_payload: Dict[str, Any] = {
+            "stage": stage,
+            "stage_label": stage_label,
+            "message": message,
+            "status": status_text,
+            "updated_at": utc_now_iso()
+        }
+        if current_index is not None:
+            detail_payload["current_index"] = current_index
+        if style_name is not None:
+            detail_payload["style_name"] = style_name
+        if total is not None:
+            detail_payload["total"] = total
+        elif total_items:
+            detail_payload["total"] = total_items
+        if extra:
+            detail_payload.update(extra)
+        crud_task.update_task_detail(db, task_uuid, detail_payload)
+
+    def ensure_not_cancelled():
+        """ユーザーからのキャンセル要求をチェック"""
+        task_record = crud_task.get_task_by_id(db, task_uuid)
+        if task_record and task_record.status in {"CANCELLING", "FAILURE"}:
+            record_detail(
+                stage="CANCELLING",
+                stage_label="キャンセル要求中",
+                message="キャンセル要求を検出したため処理を停止します",
+                status_text="cancelling",
+                current_index=task_record.completed_items,
+                total=task_record.total_items,
+                style_name=None,
+            )
+            raise TaskCancelledError("Task was cancelled by user")
+        return task_record
 
     try:
         print(f"=== タスク開始: {task_id} ===")
@@ -97,25 +154,30 @@ def process_style_post_task(
         )
 
         # 進捗コールバック関数
-        def progress_callback(completed: int, total: int, error: dict = None):
-            """
-            進捗更新とエラー記録
+        def progress_callback(
+            completed: int,
+            total: int,
+            *,
+            detail: Optional[Dict[str, Any]] = None,
+            error: Optional[Dict[str, Any]] = None
+        ) -> None:
+            """進捗・詳細・エラー情報を更新"""
+            nonlocal total_items
 
-            Args:
-                completed: 完了件数
-                total: 総件数
-                error: エラー情報（任意）
-            """
-            # 中止リクエスト確認
-            task_record = crud_task.get_task_by_id(db, task_uuid)
-            if task_record and task_record.status == "CANCELLING":
-                print("中止リクエスト検出 - 処理を停止します")
-                raise Exception("タスクが中止されました")
+            ensure_not_cancelled()
 
-            # 進捗更新
+            if total and total > total_items:
+                total_items = total
+
+            if detail is not None:
+                detail_payload = dict(detail)
+                detail_payload.setdefault("current_index", completed)
+                detail_payload.setdefault("total", total_items or total)
+                detail_payload["updated_at"] = utc_now_iso()
+                crud_task.update_task_detail(db, task_uuid, detail_payload)
+
             crud_task.update_task_progress(db, task_uuid, completed)
 
-            # エラー記録
             if error:
                 crud_task.add_task_error(db, task_uuid, error)
 
@@ -126,12 +188,36 @@ def process_style_post_task(
             data_filepath=style_data_filepath,
             image_dir=image_dir,
             salon_info=salon_info,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            total_items=total_items
         )
 
         # 成功ステータス更新
         crud_task.update_task_status(db, task_uuid, "SUCCESS")
+        final_snapshot = crud_task.get_task_by_id(db, task_uuid)
+        record_detail(
+            stage="COMPLETED",
+            stage_label="タスク完了",
+            message="すべてのスタイル投稿が完了しました",
+            status_text="success",
+            current_index=final_snapshot.completed_items if final_snapshot else total_items,
+            total=final_snapshot.total_items if final_snapshot else total_items
+        )
         print(f"=== タスク完了: {task_id} ===")
+
+    except TaskCancelledError as cancel_error:
+        print(f"=== タスクキャンセル: {task_id} - {cancel_error} ===")
+        crud_task.update_task_status(db, task_uuid, "FAILURE")
+        snapshot = crud_task.get_task_by_id(db, task_uuid)
+        record_detail(
+            stage="CANCELLED",
+            stage_label="タスクは中止されました",
+            message="ユーザー操作によりタスクを中止しました",
+            status_text="cancelled",
+            current_index=snapshot.completed_items if snapshot else 0,
+            total=snapshot.total_items if snapshot else total_items
+        )
+        raise
 
     except Exception as e:
         print(f"=== タスクエラー: {task_id} - {e} ===")
@@ -141,6 +227,15 @@ def process_style_post_task(
             print("タスクが正常に中止されました")
             # 中止ステータスに更新（CANCELLING → FAILURE）
             crud_task.update_task_status(db, task_uuid, "FAILURE")
+            snapshot = crud_task.get_task_by_id(db, task_uuid)
+            record_detail(
+                stage="CANCELLED",
+                stage_label="タスクは中止されました",
+                message="ユーザー操作によりタスクを中止しました",
+                status_text="cancelled",
+                current_index=snapshot.completed_items if snapshot else 0,
+                total=snapshot.total_items if snapshot else total_items
+            )
         else:
             # 通常のエラー処理
             crud_task.update_task_status(db, task_uuid, "FAILURE")
@@ -159,6 +254,16 @@ def process_style_post_task(
                 "reason": str(e),
                 "screenshot_path": screenshot_path
             })
+            failure_snapshot = crud_task.get_task_by_id(db, task_uuid)
+            record_detail(
+                stage="FAILED",
+                stage_label="タスク失敗",
+                message="エラーが発生したためタスクを終了しました",
+                status_text="error",
+                current_index=failure_snapshot.completed_items if failure_snapshot else 0,
+                total=failure_snapshot.total_items if failure_snapshot else total_items,
+                extra={"error_reason": str(e)}
+            )
 
         raise
 

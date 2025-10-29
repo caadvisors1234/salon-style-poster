@@ -826,12 +826,31 @@ class SalonBoardStylePoster:
             raise StylePostError(f"スタイル登録の完了に失敗しました: {e}", self._take_screenshot("error-register"))
 
         # スタイル一覧へ戻る
+        print("スタイル一覧へ戻る...")
+        back_to_list_button = form_config["back_to_list_button"]
+        list_ready_selector = form_config["new_style_button"]
+        back_navigation_timeout = 10000  # 明示的に10秒に制限
+        back_navigation_error: Optional[Exception] = None
+
         try:
-            print("スタイル一覧へ戻る...")
-            self._click_and_wait(form_config["back_to_list_button"])
+            self._click_and_wait(back_to_list_button, load_timeout=back_navigation_timeout)
+            self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
             print(f"✓ スタイル登録完了: {style_data['スタイル名']}")
-        except Exception as e:
-            raise StylePostError(f"スタイル一覧への戻りに失敗しました: {e}", self._take_screenshot("error-back-to-list"))
+        except Exception as navigation_error:
+            back_navigation_error = navigation_error
+            print(f"⚠ 通常の戻る操作に失敗（{navigation_error}）。直接URLで一覧に戻ります。")
+
+        if back_navigation_error:
+            try:
+                self.step_navigate_to_style_list_page(use_direct_url=True)
+                self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
+                print(f"✓ 直接URLでスタイル一覧に戻りました: {style_data['スタイル名']}")
+            except Exception as direct_navigation_error:
+                combined_message = (
+                    f"スタイル一覧への戻りに失敗しました: {back_navigation_error}; "
+                    f"直接URL遷移にも失敗: {direct_navigation_error}"
+                )
+                raise StylePostError(combined_message, self._take_screenshot("error-back-to-list"))
 
     def run(
         self,
@@ -840,7 +859,8 @@ class SalonBoardStylePoster:
         data_filepath: str,
         image_dir: str,
         salon_info: Optional[Dict] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        total_items: Optional[int] = None
     ):
         """
         メイン実行ロジック
@@ -852,15 +872,83 @@ class SalonBoardStylePoster:
             image_dir: 画像ディレクトリパス
             salon_info: サロン情報（複数店舗用）
             progress_callback: 進捗コールバック関数
+            total_items: 期待される処理件数（事前計算済みの総件数）
         """
         self.progress_callback = progress_callback
+        expected_total = total_items or 0
+
+        def emit_progress(
+            completed: int,
+            detail: Optional[Dict[str, object]] = None,
+            *,
+            error: Optional[Dict[str, object]] = None,
+            total_override: Optional[int] = None
+        ) -> None:
+            """進捗コールバックを通じて詳細情報を通知"""
+            if not self.progress_callback:
+                return
+
+            total_value = total_override if total_override is not None else expected_total
+            if not total_value and detail and isinstance(detail.get("total"), int):
+                total_value = int(detail["total"])
+            if detail is not None:
+                payload = dict(detail)
+                payload.setdefault("current_index", completed)
+                if total_value:
+                    payload.setdefault("total", total_value)
+                self.progress_callback(
+                    completed,
+                    total_value,
+                    detail=payload,
+                    error=error
+                )
+            else:
+                self.progress_callback(
+                    completed,
+                    total_value,
+                    detail=None,
+                    error=error
+                )
 
         try:
             # ブラウザ起動
+            emit_progress(
+                0,
+                {
+                    "stage": "BROWSER_STARTING",
+                    "stage_label": "ブラウザ起動準備",
+                    "message": "Playwrightを起動しています",
+                    "status": "info",
+                    "current_index": 0,
+                    "total": expected_total
+                }
+            )
             self._start_browser()
+            emit_progress(
+                0,
+                {
+                    "stage": "BROWSER_READY",
+                    "stage_label": "ブラウザ起動完了",
+                    "message": "Playwrightの起動が完了しました",
+                    "status": "info",
+                    "current_index": 0,
+                    "total": expected_total
+                }
+            )
 
             # ログイン
             self.step_login(user_id, password, salon_info)
+            emit_progress(
+                0,
+                {
+                    "stage": "LOGIN_COMPLETED",
+                    "stage_label": "ログイン完了",
+                    "message": "SALON BOARDへのログインが完了しました",
+                    "status": "info",
+                    "current_index": 0,
+                    "total": expected_total
+                }
+            )
 
             # データ読み込み
             print(f"データファイル読み込み: {data_filepath}")
@@ -872,16 +960,49 @@ class SalonBoardStylePoster:
                 raise Exception("サポートされていないファイル形式です")
 
             print(f"✓ {len(df)}件のスタイルデータを読み込みました")
+            expected_total = len(df)
+            emit_progress(
+                0,
+                {
+                    "stage": "DATA_READY",
+                    "stage_label": "データ読み込み完了",
+                    "message": f"{expected_total}件のスタイルデータを読み込みました",
+                    "status": "info",
+                    "current_index": 0,
+                    "total": expected_total
+                }
+            )
 
             # スタイル一覧ページへ移動
             self.step_navigate_to_style_list_page()
+            emit_progress(
+                0,
+                {
+                    "stage": "NAVIGATED",
+                    "stage_label": "投稿準備完了",
+                    "message": "スタイル一覧ページを開きました",
+                    "status": "info",
+                    "current_index": 0,
+                    "total": expected_total
+                }
+            )
 
             # スタイルごとにループ処理
             image_dir_path = Path(image_dir)
             for index, row in df.iterrows():
-                # 進捗コールバック（中止チェック）- try-exceptの外で呼び出し
-                if self.progress_callback:
-                    self.progress_callback(index, len(df))
+                style_name = row.get("スタイル名", "不明")
+                emit_progress(
+                    index,
+                    {
+                        "stage": "STYLE_PROCESSING",
+                        "stage_label": "スタイル処理中",
+                        "message": f"{index + 1}/{expected_total}件目「{style_name}」を処理しています",
+                        "status": "working",
+                        "current_index": index + 1,
+                        "total": expected_total,
+                        "style_name": style_name
+                    }
+                )
 
                 try:
                     print(f"\n--- スタイル {index + 1}/{len(df)} 処理中 ---")
@@ -897,8 +1018,18 @@ class SalonBoardStylePoster:
                     self.step_process_single_style(row.to_dict(), str(image_path))
 
                     # 成功時の進捗更新
-                    if self.progress_callback:
-                        self.progress_callback(index + 1, len(df))
+                    emit_progress(
+                        index + 1,
+                        {
+                            "stage": "STYLE_COMPLETED",
+                            "stage_label": "スタイル投稿完了",
+                            "message": f"{index + 1}/{expected_total}件目「{style_name}」の投稿が完了しました",
+                            "status": "completed",
+                            "current_index": index + 1,
+                            "total": expected_total,
+                            "style_name": style_name
+                        }
+                    )
 
                 except Exception as e:
                     print(f"✗ エラー発生: {e}")
@@ -915,20 +1046,39 @@ class SalonBoardStylePoster:
                     # エラー情報記録（呼び出し元で処理）
                     error_field = self._get_error_field_from_exception(e)
 
-                    if self.progress_callback:
-                        self.progress_callback(
-                            index + 1,
-                            len(df),
-                            error={
-                                "row_number": index + 2,  # ヘッダー行を考慮
-                                "style_name": row.get("スタイル名", "不明"),
-                                "field": error_field,
-                                "reason": str(e),
-                                "screenshot_path": screenshot_path
-                            }
-                        )
+                    error_payload = {
+                        "row_number": index + 2,  # ヘッダー行を考慮
+                        "style_name": style_name,
+                        "field": error_field,
+                        "reason": str(e),
+                        "screenshot_path": screenshot_path
+                    }
+                    emit_progress(
+                        index + 1,
+                        {
+                            "stage": "STYLE_ERROR",
+                            "stage_label": "スタイル投稿エラー",
+                            "message": f"{index + 1}/{expected_total}件目「{style_name}」でエラーが発生しました",
+                            "status": "error",
+                            "current_index": index + 1,
+                            "total": expected_total,
+                            "style_name": style_name
+                        },
+                        error=error_payload
+                    )
 
             print("\n✓ 全スタイルの処理が完了しました")
+            emit_progress(
+                expected_total,
+                {
+                    "stage": "SUMMARY",
+                    "stage_label": "処理完了",
+                    "message": "全てのスタイル投稿を完了しました",
+                    "status": "success",
+                    "current_index": expected_total,
+                    "total": expected_total
+                }
+            )
 
         except Exception as e:
             print(f"\n✗ 致命的エラー: {e}")

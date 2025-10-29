@@ -3,7 +3,7 @@ Task関連スキーマ
 """
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Literal
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 
@@ -22,6 +22,7 @@ class TaskStatus(BaseModel):
     has_errors: bool
     error_count: int = Field(default=0, description="エラー件数")
     created_at: datetime
+    detail: Optional[Dict[str, Any]] = Field(default=None, description="進捗詳細情報")
 
     class Config:
         from_attributes = True

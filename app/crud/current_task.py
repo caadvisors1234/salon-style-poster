@@ -2,7 +2,7 @@
 CurrentTask CRUD操作
 """
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Dict, Any
 import json
 from uuid import UUID
 
@@ -61,6 +61,7 @@ def create_task(
         status="PROCESSING",
         total_items=total_items,
         completed_items=0,
+        progress_detail_json=None,
         error_info_json=None
     )
     db.add(db_task)
@@ -84,6 +85,26 @@ def update_task_progress(db: Session, task_id: UUID, completed_items: int) -> Op
     db_task = get_task_by_id(db, task_id)
     if db_task:
         db_task.completed_items = completed_items
+        db.commit()
+        db.refresh(db_task)
+    return db_task
+
+
+def update_task_detail(db: Session, task_id: UUID, detail: Dict[str, Any]) -> Optional[CurrentTask]:
+    """
+    タスク進捗の詳細情報を更新
+
+    Args:
+        db: データベースセッション
+        task_id: タスクID
+        detail: フロントエンド表示用の詳細情報
+
+    Returns:
+        Optional[CurrentTask]: 更新されたタスク（存在しない場合はNone）
+    """
+    db_task = get_task_by_id(db, task_id)
+    if db_task:
+        db_task.progress_detail_json = json.dumps(detail, ensure_ascii=False)
         db.commit()
         db.refresh(db_task)
     return db_task
