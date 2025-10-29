@@ -108,6 +108,28 @@
             タスクがエラーにより中断されました
         </div>
 
+        <div id="manual-upload-section" class="alert alert-warning hidden">
+            <div class="manual-upload-header">
+                <h3 class="mt-0 mb-1">手動画像登録のお願い <span id="manual-upload-count" class="badge badge-light">0件</span></h3>
+                <p class="mb-1">
+                    以下のスタイルについては画像の自動登録が完了しませんでした。SALON BOARD 上で該当画像を手動登録してください。
+                </p>
+            </div>
+            <div class="table-responsive">
+                <table class="table manual-upload-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">スタイル名</th>
+                            <th scope="col">画像ファイル名</th>
+                            <th scope="col">対応内容</th>
+                        </tr>
+                    </thead>
+                    <tbody id="manual-upload-list"></tbody>
+                </table>
+            </div>
+        </div>
+
         <div id="error-report-section" class="hidden">
             <h3 class="mt-2 mb-1">エラーレポート</h3>
 
@@ -147,6 +169,7 @@
         STYLE_PROCESSING: 'スタイル処理中',
         STYLE_COMPLETED: 'スタイル処理完了',
         STYLE_ERROR: 'スタイル処理エラー',
+        STYLE_WARNING: '手動対応が必要',
         SUMMARY: '処理完了',
         CANCELLING: 'キャンセル処理',
         CANCELLED: 'キャンセル済み',
@@ -329,10 +352,11 @@
         }
 
         // エラーレポート取得
-        if (status.has_errors) {
+        if (status.has_errors || (status.manual_upload_count && status.manual_upload_count > 0)) {
             await loadErrorReport();
         } else {
             document.getElementById('error-report-section').classList.add('hidden');
+            document.getElementById('manual-upload-section').classList.add('hidden');
         }
     }
 
@@ -459,54 +483,81 @@
             const errorList = document.getElementById('error-list');
             const errorSection = document.getElementById('error-report-section');
             const errorCountResult = document.getElementById('error-count-result');
+            const manualSection = document.getElementById('manual-upload-section');
+            const manualList = document.getElementById('manual-upload-list');
+            const manualCountBadge = document.getElementById('manual-upload-count');
 
             errorList.innerHTML = '';
             errorCountResult.textContent = report.total_errors;
 
-            report.errors.forEach((error, index) => {
-                const errorItem = document.createElement('div');
-                errorItem.className = 'error-item';
+            manualList.innerHTML = '';
+            const manualUploads = report.manual_uploads || [];
+            if (manualUploads.length > 0) {
+                manualSection.classList.remove('hidden');
+                manualCountBadge.textContent = `${manualUploads.length}件`;
+                manualUploads.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${item.style_name || '-'}</td>
+                        <td>${item.image_name || '-'}</td>
+                        <td>${item.reason || ''}</td>
+                    `;
+                    manualList.appendChild(row);
+                });
+            } else {
+                manualSection.classList.add('hidden');
+                manualCountBadge.textContent = '0件';
+            }
 
-                // デバッグ: エラー情報をコンソールに出力
-                console.log(`Error ${index + 1}:`, error);
-                console.log(`Screenshot URL:`, error.screenshot_url);
+            const errors = report.errors || [];
+            if (errors.length > 0) {
+                errors.forEach((error, index) => {
+                    const errorItem = document.createElement('div');
+                    errorItem.className = 'error-item';
 
-                // スクリーンショット部分のHTML
-                const screenshotHtml = error.screenshot_url ? `
-                    <div class="error-screenshot">
-                        <strong>スクリーンショット:</strong>
-                        <div class="screenshot-thumbnail-container">
-                            <img
-                                src="${error.screenshot_url}"
-                                alt="Error screenshot"
-                                class="screenshot-thumbnail"
-                                onclick="openScreenshotModal('${error.screenshot_url}')"
-                            >
-                            <div class="screenshot-overlay">クリックで拡大</div>
+                    // デバッグ: エラー情報をコンソールに出力
+                    console.log(`Error ${index + 1}:`, error);
+                    console.log(`Screenshot URL:`, error.screenshot_url);
+
+                    // スクリーンショット部分のHTML
+                    const screenshotHtml = error.screenshot_url ? `
+                        <div class="error-screenshot">
+                            <strong>スクリーンショット:</strong>
+                            <div class="screenshot-thumbnail-container">
+                                <img
+                                    src="${error.screenshot_url}"
+                                    alt="Error screenshot"
+                                    class="screenshot-thumbnail"
+                                    onclick="openScreenshotModal('${error.screenshot_url}')"
+                                >
+                                <div class="screenshot-overlay">クリックで拡大</div>
+                            </div>
                         </div>
-                    </div>
-                ` : '';
+                    ` : '';
 
-                errorItem.innerHTML = `
-                    <div class="error-item-header">
-                        <span class="error-number">エラー ${index + 1}</span>
-                        <span class="error-row">行 ${error.row_number}</span>
-                        <span class="error-style-name">${error.style_name}</span>
-                    </div>
-                    <div class="error-item-details">
-                        <div class="error-field">
-                            <strong>項目:</strong> ${error.field}
+                    errorItem.innerHTML = `
+                        <div class="error-item-header">
+                            <span class="error-number">エラー ${index + 1}</span>
+                            <span class="error-row">行 ${error.row_number}</span>
+                            <span class="error-style-name">${error.style_name}</span>
                         </div>
-                        <div class="error-reason">
-                            <strong>理由:</strong> ${error.reason}
+                        <div class="error-item-details">
+                            <div class="error-field">
+                                <strong>項目:</strong> ${error.field}
+                            </div>
+                            <div class="error-reason">
+                                <strong>理由:</strong> ${error.reason}
+                            </div>
+                            ${screenshotHtml}
                         </div>
-                        ${screenshotHtml}
-                    </div>
-                `;
-                errorList.appendChild(errorItem);
-            });
-
-            errorSection.classList.remove('hidden');
+                    `;
+                    errorList.appendChild(errorItem);
+                });
+                errorSection.classList.remove('hidden');
+            } else {
+                errorSection.classList.add('hidden');
+            }
         } catch (error) {
             console.error('Failed to load error report:', error);
         }

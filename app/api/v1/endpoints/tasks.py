@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, ProgrammingError
-from typing import List
+from typing import Any, Dict, List
 from datetime import datetime, timezone
 import json
 import os
@@ -227,14 +227,27 @@ async def get_task_status(
         )
 
     progress = (db_task.completed_items / db_task.total_items * 100) if db_task.total_items > 0 else 0
-    error_entries = []
+    error_entries_raw: List[Dict[str, Any]] = []
     if db_task.error_info_json:
         try:
-            error_entries = json.loads(db_task.error_info_json)
+            decoded = json.loads(db_task.error_info_json)
+            if isinstance(decoded, list):
+                error_entries_raw = decoded
         except json.JSONDecodeError:
-            error_entries = []
+            error_entries_raw = []
+
+    manual_entries = [
+        entry for entry in error_entries_raw
+        if entry.get("error_category") == "IMAGE_UPLOAD_ABORTED"
+    ]
+    error_entries = [
+        entry for entry in error_entries_raw
+        if entry.get("error_category") != "IMAGE_UPLOAD_ABORTED"
+    ]
+
     has_errors = len(error_entries) > 0
     error_count = len(error_entries)
+    manual_upload_count = len(manual_entries)
     detail = None
     if db_task.progress_detail_json:
         try:
@@ -250,6 +263,7 @@ async def get_task_status(
         "progress": round(progress, 2),
         "has_errors": has_errors,
         "error_count": error_count,
+        "manual_upload_count": manual_upload_count,
         "created_at": db_task.created_at,
         "detail": detail
     }
@@ -338,33 +352,39 @@ async def get_error_report(
             status_code=status.HTTP_204_NO_CONTENT
         )
 
-    errors = json.loads(db_task.error_info_json)
+    raw_errors = json.loads(db_task.error_info_json)
+    manual_uploads = []
+    filtered_errors = []
 
-    # screenshot_pathをscreenshot_urlに変換
-    for error in errors:
-        if "screenshot_path" in error:
-            # パスをURLに変換
-            screenshot_path = error["screenshot_path"]
-            if screenshot_path:
-                # app/static/screenshots/xxx.png → /static/screenshots/xxx.png
-                if screenshot_path.startswith("app/static/"):
-                    error["screenshot_url"] = screenshot_path.replace("app/static/", "/static/")
-                elif screenshot_path.startswith("static/"):
-                    error["screenshot_url"] = "/" + screenshot_path
-                elif screenshot_path.startswith("/"):
-                    error["screenshot_url"] = screenshot_path
-                else:
-                    # 念のため/static/を追加
-                    error["screenshot_url"] = "/static/" + screenshot_path
-            else:
-                error["screenshot_url"] = ""
-        elif "screenshot_url" not in error:
-            error["screenshot_url"] = ""
+    def convert_screenshot_path(entry: Dict[str, Any]) -> None:
+        screenshot_path = entry.get("screenshot_path", "")
+        if not screenshot_path:
+            entry["screenshot_url"] = ""
+            return
+
+        if screenshot_path.startswith("app/static/"):
+            entry["screenshot_url"] = screenshot_path.replace("app/static/", "/static/")
+        elif screenshot_path.startswith("static/"):
+            entry["screenshot_url"] = "/" + screenshot_path
+        elif screenshot_path.startswith("/"):
+            entry["screenshot_url"] = screenshot_path
+        else:
+            entry["screenshot_url"] = "/static/" + screenshot_path
+
+    for error in raw_errors:
+        entry = dict(error)
+        convert_screenshot_path(entry)
+        if entry.get("error_category") == "IMAGE_UPLOAD_ABORTED":
+            manual_uploads.append(entry)
+        else:
+            filtered_errors.append(entry)
 
     return {
         "task_id": db_task.id,
-        "total_errors": len(errors),
-        "errors": errors
+        "total_errors": len(filtered_errors),
+        "errors": filtered_errors,
+        "manual_uploads": manual_uploads,
+        "manual_upload_count": len(manual_uploads)
     }
 
 

@@ -8,7 +8,7 @@ import time
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Callable
+from typing import Dict, List, Optional, Callable
 from playwright.sync_api import (
     sync_playwright,
     Page,
@@ -355,11 +355,36 @@ class SalonBoardStylePoster:
 
         return False
 
+    def _perform_dummy_mouse_move(self, margin: int = 32) -> None:
+        """ページ内でのマウス移動を小さく挿入し、人間らしい操作を模倣する。"""
+        if not self.page:
+            return
+
+        viewport = self.page.viewport_size or {"width": 412, "height": 915}
+        width = max(1, viewport.get("width", 412))
+        height = max(1, viewport.get("height", 915))
+        margin = max(0, margin)
+
+        min_x = min(margin, width - 1)
+        max_x = max(min_x, width - 1 - margin)
+        min_y = min(margin, height - 1)
+        max_y = max(min_y, height - 1 - margin)
+
+        try:
+            target_x = self._random.randint(min_x, max_x) if max_x >= min_x else self._random.randint(0, width - 1)
+            target_y = self._random.randint(min_y, max_y) if max_y >= min_y else self._random.randint(0, height - 1)
+            steps = self._random.randint(3, 7)
+            self.page.mouse.move(target_x, target_y, steps=steps)
+        except Exception:
+            # マウス操作がサポートされない環境では黙ってスキップ
+            pass
+
     def _human_pause(
         self,
         base_ms: Optional[int] = None,
         jitter_ms: Optional[int] = None,
-        minimum_ms: Optional[int] = None
+        minimum_ms: Optional[int] = None,
+        with_mouse_move: bool = False
     ) -> None:
         """
         操作間に人間らしい待機を挿入する
@@ -368,6 +393,7 @@ class SalonBoardStylePoster:
             base_ms: 基本待機時間（ミリ秒）
             jitter_ms: 待機時間に加える揺らぎ（ミリ秒）
             minimum_ms: 最小待機時間（ミリ秒）
+            with_mouse_move: True の場合は待機前にマウスを小さく動かして人間操作を疑似する
         """
         base = base_ms if base_ms is not None else self.HUMAN_BASE_WAIT_MS
         jitter = jitter_ms if jitter_ms is not None else self.HUMAN_JITTER_MS
@@ -379,6 +405,9 @@ class SalonBoardStylePoster:
 
         delay_ms = base + self._random.randint(-jitter, jitter)
         delay_ms = max(minimum, delay_ms)
+
+        if with_mouse_move:
+            self._perform_dummy_mouse_move()
 
         if self.page:
             self.page.wait_for_timeout(delay_ms)
@@ -482,9 +511,6 @@ class SalonBoardStylePoster:
                 screenshot_path=screenshot_path
             ) from e
 
-        print("  - ログイン後のAkamaiセッション整合性を確認中...")
-        self._ensure_akamai_readiness(attempts=2, timeout_ms=10000)
-
     def step_navigate_to_style_list_page(self, use_direct_url: bool = False):
         """
         スタイル一覧ページへ移動
@@ -576,14 +602,20 @@ class SalonBoardStylePoster:
             print("⚠ スタイル一覧ページへの戻りを諦めます。次のスタイル処理時に再試行します。")
             return False
 
-    def step_process_single_style(self, style_data: Dict, image_path: str):
+    def step_process_single_style(self, style_data: Dict, image_path: str) -> List[Dict[str, object]]:
         """
         1件のスタイル処理
 
         Args:
             style_data: スタイル情報の辞書
             image_path: 画像ファイルのパス
+        Returns:
+            List[Dict[str, object]]: 画像アップロードに関する警告（手動対応が必要な場合のみ）
         """
+        manual_upload_events: List[Dict[str, object]] = []
+        row_number = style_data.get("_row_number", 0)
+        image_filename = Path(image_path).name
+
         form_config = self.selectors["style_form"]
 
         # 新規登録ページへ
@@ -637,7 +669,12 @@ class SalonBoardStylePoster:
 
             # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
+            try:
+                submit_button.hover(timeout=2000)
+            except Exception:
+                # hover不可（例: モバイルコンテキスト）の場合はスキップ
+                pass
+            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350, with_mouse_move=True)
 
             # 強制的にクリック（JavaScriptで実行）
             print(f"  - 送信ボタンクリック中（JavaScript実行）...")
@@ -647,6 +684,8 @@ class SalonBoardStylePoster:
             )
 
             upload_response: Optional[Response] = None
+            manual_upload_required = False
+            manual_upload_reason = ""
             try:
                 with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
                     submit_button.evaluate("el => el.click()")
@@ -654,6 +693,9 @@ class SalonBoardStylePoster:
                 print(f"  - 画像アップロードレスポンス取得: status={upload_response.status}, url={upload_response.url}")
             except PlaywrightTimeoutError:
                 reason = self._last_failed_upload_reason or "imgUpload/doUpload のレスポンス待機がタイムアウトしました"
+                manual_upload_reason = reason
+                if "ERR_ABORTED" in reason.upper():
+                    manual_upload_required = True
                 modal_hidden = False
                 try:
                     self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=2000)
@@ -677,6 +719,24 @@ class SalonBoardStylePoster:
                 akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
                 raise Exception(
                     f"画像アップロードAPIが失敗しました (status={upload_response.status}, preview={body_preview}, akamai={akamai_status}{extra})"
+                )
+            elif manual_upload_required:
+                warning_message = (
+                    f"画像アップロードリクエストがブラウザ側で中断されました (image={image_filename})。"
+                    "SALON BOARDで手動アップロードを実施してください。"
+                )
+                print(f"⚠ {warning_message}")
+                manual_upload_events.append(
+                    {
+                        "row_number": row_number,
+                        "style_name": style_data.get("スタイル名", "不明"),
+                        "field": "画像アップロード",
+                        "reason": warning_message,
+                        "image_name": image_filename,
+                        "error_category": "IMAGE_UPLOAD_ABORTED",
+                        "raw_error": manual_upload_reason,
+                        "screenshot_path": ""
+                    }
                 )
 
             self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
@@ -852,6 +912,8 @@ class SalonBoardStylePoster:
                 )
                 raise StylePostError(combined_message, self._take_screenshot("error-back-to-list"))
 
+        return manual_upload_events
+
     def run(
         self,
         user_id: str,
@@ -1014,8 +1076,11 @@ class SalonBoardStylePoster:
                     if not image_path.exists():
                         raise Exception(f"画像ファイルが見つかりません: {image_filename}")
 
+                    style_dict = row.to_dict()
+                    style_dict["_row_number"] = index + 2  # CSVヘッダー分を考慮
+
                     # スタイル処理
-                    self.step_process_single_style(row.to_dict(), str(image_path))
+                    manual_events = self.step_process_single_style(style_dict, str(image_path))
 
                     # 成功時の進捗更新
                     emit_progress(
@@ -1030,6 +1095,27 @@ class SalonBoardStylePoster:
                             "style_name": style_name
                         }
                     )
+
+                    if manual_events:
+                        for event in manual_events:
+                            event.setdefault("row_number", index + 2)
+                            event.setdefault("style_name", style_name)
+                            event.setdefault("field", "画像アップロード")
+                            event.setdefault("error_category", "IMAGE_UPLOAD_ABORTED")
+                            event.setdefault("image_name", image_filename)
+                            emit_progress(
+                                index + 1,
+                                {
+                                    "stage": "STYLE_WARNING",
+                                    "stage_label": "手動対応が必要",
+                                    "message": f"{style_name} の画像をSALON BOARDで手動登録してください",
+                                    "status": "warning",
+                                    "current_index": index + 1,
+                                    "total": expected_total,
+                                    "style_name": style_name
+                                },
+                                error=event
+                            )
 
                 except Exception as e:
                     print(f"✗ エラー発生: {e}")
