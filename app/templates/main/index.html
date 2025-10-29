@@ -91,15 +91,6 @@
             </div>
         </div>
 
-        <div class="mt-2">
-            <p class="text-muted">
-                タスクID: <span id="task-id" class="text-primary"></span>
-            </p>
-            <p class="text-muted">
-                開始時刻: <span id="task-created-at"></span>
-            </p>
-        </div>
-
         <div class="btn-group mt-2">
             <button id="cancel-task-btn" class="btn btn-danger">
                 タスクを中止
@@ -352,8 +343,6 @@
         const progressText = document.getElementById('progress-text');
         const progressItems = document.getElementById('progress-items');
         const progressStatus = document.getElementById('progress-status');
-        const taskId = document.getElementById('task-id');
-        const taskCreatedAt = document.getElementById('task-created-at');
         const progressDetail = document.getElementById('progress-detail');
         const progressStage = document.getElementById('progress-stage');
         const progressUpdatedAt = document.getElementById('progress-updated-at');
@@ -365,8 +354,6 @@
         progressText.textContent = `${progress}%`;
         progressItems.textContent = `${status.completed_items} / ${status.total_items} 件完了`;
         progressStatus.textContent = deriveStatusLabel(status);
-        taskId.textContent = status.task_id;
-        taskCreatedAt.textContent = new Date(status.created_at).toLocaleString('ja-JP');
 
         const detail = status.detail;
         if (detail) {
