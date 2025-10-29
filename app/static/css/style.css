@@ -704,11 +704,63 @@ body {
 
 .progress-info {
     margin-top: var(--spacing-md);
+   display: flex;
+   flex-direction: column;
+   gap: var(--spacing-sm);
+   font-size: var(--font-size-sm);
+   color: var(--gray-600);
+}
+
+.progress-detail {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: var(--gray-100);
+    border: 1px solid var(--gray-300);
+    border-radius: 2px;
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
     font-size: var(--font-size-sm);
-    color: var(--gray-600);
+    color: var(--gray-700);
+}
+
+.progress-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    color: var(--gray-900);
+}
+
+.progress-stage-label {
+    font-size: var(--font-size-sm);
+}
+
+.progress-detail-timestamp {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.progress-detail-message {
+    line-height: 1.6;
+}
+
+.progress-style-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+}
+
+.progress-style-label {
+    font-weight: 600;
+    color: var(--gray-800);
+}
+
+.progress-style-name {
+    font-weight: 500;
+    color: var(--gray-900);
 }
 
 /* --- Error Report (Mobile Optimized) --- */

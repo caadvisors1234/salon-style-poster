@@ -27,6 +27,7 @@ class CurrentTask(Base):
     status = Column(String(50), nullable=False, index=True)
     total_items = Column(Integer, nullable=False)
     completed_items = Column(Integer, nullable=False, default=0)
+    progress_detail_json = Column(Text, nullable=True)
     error_info_json = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.current_timestamp())
 

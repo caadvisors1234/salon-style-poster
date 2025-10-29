@@ -3,8 +3,9 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from typing import List
+from datetime import datetime, timezone
 import json
 import os
 import shutil
@@ -144,6 +145,20 @@ async def create_style_post_task(
                 user_id=current_user.id,
                 total_items=len(df)
             )
+
+            crud_task.update_task_detail(
+                db=db,
+                task_id=db_task.id,
+                detail={
+                    "stage": "INITIALIZING",
+                    "stage_label": "タスクを準備しています",
+                    "message": "Playwrightの起動を準備中です",
+                    "status": "pending",
+                    "current_index": 0,
+                    "total": len(df),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            )
         except IntegrityError:
             # UNIQUE制約違反 = 既にタスク実行中
             shutil.rmtree(task_dir)
@@ -153,12 +168,15 @@ async def create_style_post_task(
             )
 
         # Celeryタスクをキューイング
-        process_style_post_task.delay(
-            task_id=str(task_uuid),
-            user_id=current_user.id,
-            setting_id=setting_id,
-            style_data_filepath=str(style_data_path),
-            image_dir=str(image_dir)
+        process_style_post_task.apply_async(
+            kwargs={
+                "task_id": str(task_uuid),
+                "user_id": current_user.id,
+                "setting_id": setting_id,
+                "style_data_filepath": str(style_data_path),
+                "image_dir": str(image_dir)
+            },
+            task_id=str(task_uuid)
         )
 
         return {
@@ -168,6 +186,23 @@ async def create_style_post_task(
 
     except HTTPException:
         raise
+    except ProgrammingError as e:
+        if task_dir.exists():
+            shutil.rmtree(task_dir)
+
+        message = str(e)
+        if hasattr(e, "orig"):
+            message = str(e.orig)
+        if "progress_detail_json" in message:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database schema is outdated. Please run 'alembic upgrade head' and try again."
+            ) from e
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create task: {str(e)}"
+        ) from e
     except Exception as e:
         # エラー時のクリーンアップ
         if task_dir.exists():
@@ -200,6 +235,12 @@ async def get_task_status(
             error_entries = []
     has_errors = len(error_entries) > 0
     error_count = len(error_entries)
+    detail = None
+    if db_task.progress_detail_json:
+        try:
+            detail = json.loads(db_task.progress_detail_json)
+        except json.JSONDecodeError:
+            detail = None
 
     return {
         "task_id": db_task.id,
@@ -209,7 +250,8 @@ async def get_task_status(
         "progress": round(progress, 2),
         "has_errors": has_errors,
         "error_count": error_count,
-        "created_at": db_task.created_at
+        "created_at": db_task.created_at,
+        "detail": detail
     }
 
 
@@ -232,16 +274,42 @@ async def cancel_task(
             detail="Task has already finished"
         )
 
-    # Celeryタスクを即座に終了（terminate=Trueで強制終了）
-    # タスクIDの形式: process_style_post[celery-task-id]
-    # Redis/Celeryから実行中のタスクを取得して終了
-    celery_app.control.revoke(str(db_task.id), terminate=True, signal='SIGKILL')
+    if db_task.status != "CANCELLING":
+        crud_task.update_task_status(db, db_task.id, "CANCELLING")
+        crud_task.update_task_detail(
+            db=db,
+            task_id=db_task.id,
+            detail={
+                "stage": "CANCELLING",
+                "stage_label": "キャンセル要求中",
+                "message": "ユーザーがタスクの中止を要求しました",
+                "status": "cancelling",
+                "current_index": db_task.completed_items,
+                "total": db_task.total_items,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        )
 
-    # ステータスをFAILUREに更新（中止扱い）
+    task_identifier = str(db_task.id)
+    celery_app.control.revoke(task_identifier, terminate=True, signal="SIGTERM")
+
     crud_task.update_task_status(db, db_task.id, "FAILURE")
+    crud_task.update_task_detail(
+        db=db,
+        task_id=db_task.id,
+        detail={
+            "stage": "CANCELLED",
+            "stage_label": "タスクは中止されました",
+            "message": "ユーザー操作により処理を停止しました",
+            "status": "cancelled",
+            "current_index": db_task.completed_items,
+            "total": db_task.total_items,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+    )
 
     return {
-        "message": "Task has been forcefully terminated."
+        "message": "Task cancellation requested."
     }
 
 
