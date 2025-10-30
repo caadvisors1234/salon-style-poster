@@ -676,6 +676,11 @@ class SalonBoardStylePoster:
                 pass
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350, with_mouse_move=True)
 
+            # Akamaiの動的チェックを回避するため、クリック直前にセンサーを再度刺激
+            print("  - Akamaiセンサーを刺激中...")
+            self._stimulate_akamai_sensor()
+            self._human_pause(base_ms=800, jitter_ms=300, minimum_ms=500, with_mouse_move=True)
+
             # 強制的にクリック（JavaScriptで実行）
             print(f"  - 送信ボタンクリック中（JavaScript実行）...")
             upload_predicate = lambda response: (
