@@ -7,7 +7,7 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from celery import Task
@@ -18,6 +18,10 @@ from app.db.session import SessionLocal
 from app.crud import current_task as crud_task, salon_board_setting as crud_setting
 from app.core.security import decrypt_password
 from app.services.style_poster import SalonBoardStylePoster, StylePostError, load_selectors
+from app.services.style_unpublisher import (
+    SalonBoardStyleUnpublisher,
+    StyleUnpublishError,
+)
 
 logger = logging.getLogger(__name__)
 SCREENSHOT_DIR = Path(settings.SCREENSHOT_DIR)
@@ -279,6 +283,198 @@ def process_style_post_task(
                 logger.info("画像ディレクトリ削除: %s", image_dir)
         except Exception as cleanup_error:
             logger.warning("クリーンアップエラー: %s", cleanup_error)
+
+
+@celery_app.task(bind=True, base=DatabaseTask, name="unpublish_styles")
+def unpublish_styles_task(
+    self,
+    task_id: str,
+    user_id: int,
+    setting_id: int,
+    salon_url: str,
+    range_start: int,
+    range_end: int,
+    exclude_numbers: List[int],
+):
+    """
+    スタイル非掲載タスク
+    """
+    task_uuid = UUID(task_id)
+    db = self.db
+    db_task_snapshot = crud_task.get_task_by_id(db, task_uuid)
+    total_items = db_task_snapshot.total_items if db_task_snapshot else 0
+    exclude_set: Set[int] = {int(n) for n in exclude_numbers}
+
+    def utc_now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def record_detail(
+        stage: str,
+        stage_label: str,
+        message: str,
+        *,
+        status_text: str = "running",
+        current_index: Optional[int] = None,
+        total: Optional[int] = None,
+        style_number: Optional[int] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        detail_payload: Dict[str, Any] = {
+            "stage": stage,
+            "stage_label": stage_label,
+            "message": message,
+            "status": status_text,
+            "updated_at": utc_now_iso(),
+        }
+        if current_index is not None:
+            detail_payload["current_index"] = current_index
+        if style_number is not None:
+            detail_payload["style_number"] = style_number
+        if total is not None:
+            detail_payload["total"] = total
+        elif total_items:
+            detail_payload["total"] = total_items
+        if extra:
+            detail_payload.update(extra)
+        crud_task.update_task_detail(db, task_uuid, detail_payload)
+
+    def ensure_not_cancelled():
+        task_record = crud_task.get_task_by_id(db, task_uuid)
+        if task_record and task_record.status in {"CANCELLING", "FAILURE"}:
+            record_detail(
+                stage="CANCELLING",
+                stage_label="キャンセル要求中",
+                message="キャンセル要求を検出したため処理を停止します",
+                status_text="cancelling",
+                current_index=task_record.completed_items,
+                total=task_record.total_items,
+                style_number=None,
+            )
+            raise TaskCancelledError("Task was cancelled by user")
+        return task_record
+
+    try:
+        logger.info("=== 非掲載タスク開始: %s ===", task_id)
+
+        setting = crud_setting.get_setting_by_id(db, setting_id)
+        if not setting or setting.user_id != user_id:
+            raise Exception("SALON BOARD設定が見つかりません")
+
+        sb_password = decrypt_password(setting.encrypted_sb_password)
+
+        selectors = load_selectors()
+        SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        screenshot_dir = str(SCREENSHOT_DIR)
+
+        unpublisher = SalonBoardStyleUnpublisher(
+            selectors=selectors,
+            screenshot_dir=screenshot_dir,
+            headless=True,
+            slow_mo=100,
+        )
+
+        def progress_callback(
+            completed: int,
+            total: int,
+            *,
+            detail: Optional[Dict[str, Any]] = None,
+            error: Optional[Dict[str, Any]] = None,
+        ) -> None:
+            nonlocal total_items
+            ensure_not_cancelled()
+
+            if total and total > total_items:
+                total_items = total
+
+            if detail is not None:
+                detail_payload = dict(detail)
+                detail_payload.setdefault("current_index", completed)
+                detail_payload.setdefault("total", total_items or total)
+                detail_payload["updated_at"] = utc_now_iso()
+                crud_task.update_task_detail(db, task_uuid, detail_payload)
+
+            crud_task.update_task_progress(db, task_uuid, completed)
+
+            if error:
+                crud_task.add_task_error(db, task_uuid, error)
+
+        salon_info = None
+        if setting.salon_id or setting.salon_name:
+            salon_info = {
+                "id": setting.salon_id,
+                "name": setting.salon_name,
+            }
+
+        unpublisher.run_unpublish(
+            user_id=setting.sb_user_id,
+            password=sb_password,
+            salon_top_url=salon_url,
+            range_start=range_start,
+            range_end=range_end,
+            exclude_numbers=exclude_set,
+            salon_info=salon_info,
+            progress_callback=progress_callback,
+        )
+
+        crud_task.update_task_status(db, task_uuid, "SUCCESS")
+        final_snapshot = crud_task.get_task_by_id(db, task_uuid)
+        record_detail(
+            stage="COMPLETED",
+            stage_label="タスク完了",
+            message="指定範囲の非掲載処理が完了しました",
+            status_text="success",
+            current_index=final_snapshot.completed_items if final_snapshot else total_items,
+            total=final_snapshot.total_items if final_snapshot else total_items,
+        )
+        logger.info("=== 非掲載タスク完了: %s ===", task_id)
+
+    except TaskCancelledError as cancel_error:
+        logger.info("=== 非掲載タスクキャンセル: %s - %s ===", task_id, cancel_error)
+        crud_task.update_task_status(db, task_uuid, "FAILURE")
+        snapshot = crud_task.get_task_by_id(db, task_uuid)
+        record_detail(
+            stage="CANCELLED",
+            stage_label="タスクは中止されました",
+            message="ユーザー操作によりタスクを中止しました",
+            status_text="cancelled",
+            current_index=snapshot.completed_items if snapshot else 0,
+            total=snapshot.total_items if snapshot else total_items,
+        )
+        raise
+
+    except Exception as e:
+        logger.exception("=== 非掲載タスクエラー: %s ===", task_id)
+
+        crud_task.update_task_status(db, task_uuid, "FAILURE")
+
+        screenshot_path = ""
+        if isinstance(e, (StylePostError, StyleUnpublishError)):
+            screenshot_path = getattr(e, "screenshot_path", "") or ""
+            if screenshot_path:
+                logger.warning("スクリーンショット: %s", screenshot_path)
+
+        crud_task.add_task_error(
+            db,
+            task_uuid,
+            {
+                "row_number": 0,
+                "style_name": "非掲載エラー",
+                "field": "非掲載処理",
+                "reason": str(e),
+                "screenshot_path": screenshot_path,
+            },
+        )
+        failure_snapshot = crud_task.get_task_by_id(db, task_uuid)
+        record_detail(
+            stage="FAILED",
+            stage_label="タスク失敗",
+            message="エラーが発生したため非掲載タスクを終了しました",
+            status_text="error",
+            current_index=failure_snapshot.completed_items if failure_snapshot else 0,
+            total=failure_snapshot.total_items if failure_snapshot else total_items,
+            extra={"error_reason": str(e)},
+        )
+        raise
 
 
 def cleanup_screenshots(

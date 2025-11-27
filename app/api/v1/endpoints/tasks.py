@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, ProgrammingError
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 from datetime import datetime, timezone
 import json
 import os
@@ -13,6 +13,9 @@ import uuid
 from pathlib import Path
 from uuid import UUID
 import pandas as pd
+import httpx
+import re
+from urllib.parse import urlparse
 from slowapi import Limiter
 
 from app.db.session import get_db
@@ -20,7 +23,7 @@ from app.core.security import get_current_user
 from app.crud import current_task as crud_task, salon_board_setting as crud_setting
 from app.schemas.user import User
 from app.schemas.task import TaskStatus, ErrorReport
-from app.services.tasks import process_style_post_task
+from app.services.tasks import process_style_post_task, unpublish_styles_task
 from app.core.celery_app import celery_app
 
 router = APIRouter()
@@ -211,6 +214,177 @@ async def create_style_post_task(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create task: {str(e)}"
         )
+
+
+@router.post("/style-unpublish", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("6/hour")
+async def create_style_unpublish_task(
+    request: Request,
+    setting_id: int = Form(...),
+    salon_url: str = Form(...),
+    range_start: int = Form(...),
+    range_end: int = Form(...),
+    exclude_numbers: str = Form("", description="カンマ区切りの除外スタイル番号"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    スタイル非掲載タスク作成・実行
+    """
+    db_setting = crud_setting.get_setting_by_id(db, setting_id)
+    if not db_setting or db_setting.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found or access denied",
+        )
+
+    if range_start <= 0 or range_end <= 0 or range_start > range_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid range. Please set a positive start/end with start <= end.",
+        )
+
+    exclude_set: Set[int] = set()
+    if exclude_numbers:
+        for token in exclude_numbers.replace("\n", ",").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                exclude_set.add(int(token))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="exclude_numbers must be a comma-separated list of integers",
+                )
+
+    target_numbers = [n for n in range(range_start, range_end + 1) if n not in exclude_set]
+    if not target_numbers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No target styles to unpublish in the specified range.",
+        )
+
+    task_uuid = uuid.uuid4()
+    total_items = len(target_numbers)
+
+    try:
+        try:
+            db_task = crud_task.create_task(
+                db=db,
+                task_id=task_uuid,
+                user_id=current_user.id,
+                total_items=total_items,
+            )
+
+            crud_task.update_task_detail(
+                db=db,
+                task_id=db_task.id,
+                detail={
+                    "stage": "INITIALIZING",
+                    "stage_label": "タスクを準備しています",
+                    "message": f"非掲載対象: {total_items}件、範囲 {range_start}〜{range_end}",
+                    "status": "pending",
+                    "current_index": 0,
+                    "total": total_items,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You already have a task in progress",
+            )
+
+        unpublish_styles_task.apply_async(
+            kwargs={
+                "task_id": str(task_uuid),
+                "user_id": current_user.id,
+                "setting_id": setting_id,
+                "salon_url": salon_url,
+                "range_start": range_start,
+                "range_end": range_end,
+                "exclude_numbers": list(exclude_set),
+            },
+            task_id=str(task_uuid),
+        )
+
+        return {
+            "task_id": str(task_uuid),
+            "message": "Task accepted and started",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        crud_task.delete_task(db, task_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create unpublish task: {str(e)}",
+        )
+
+
+@router.get("/style-count")
+async def get_style_count(
+    salon_url: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    HotPepperBeautyのスタイル数をスクレイピングして返す
+    """
+    parsed = urlparse(salon_url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or hostname != "beauty.hotpepper.jp":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL. Please provide a HotPepperBeauty salon URL.",
+        )
+    if parsed.username or parsed.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL. Authentication information is not allowed.",
+        )
+
+    style_url = salon_url.rstrip("/") + "/style/"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                style_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
+                    "Accept-Language": "ja,en;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch style page: {exc}",
+        ) from exc
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch style page (status {resp.status_code})",
+        )
+
+    html = resp.text
+    # シンプルパターン
+    match = re.search(r'numberOfResult[^>]*>\s*([\d,]+)\s*<', html, re.IGNORECASE)
+    if not match:
+        # mainContents近傍を最大8000文字までスキャン
+        match = re.search(
+            r'id=["\']mainContents["\'][\s\S]{0,8000}?numberOfResult[^>]*>\s*([\d,]+)\s*<',
+            html,
+            re.IGNORECASE,
+        )
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not parse style count from the page.",
+        )
+
+    count = int(match.group(1).replace(",", ""))
+    return {"style_count": count, "style_url": style_url}
 
 
 @router.get("/status", response_model=TaskStatus)
