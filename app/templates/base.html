@@ -113,7 +113,8 @@
                     const user = await apiCall('/api/v1/auth/me');
 
                     const navLinks = [
-                        `<a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">タスク実行</a>`,
+                        `<a href="/main" class="nav-link {% if active_page == 'main' %}active{% endif %}">スタイル投稿</a>`,
+                        `<a href="/unpublish" class="nav-link {% if active_page == 'unpublish' %}active{% endif %}">スタイル非掲載</a>`,
                         `<a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">設定</a>`
                     ];
 

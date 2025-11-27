@@ -94,19 +94,25 @@ async def login_page(request: Request):
 @app.get("/main")
 async def main_page(request: Request):
     """メインページ（タスク実行）- クライアントサイドで認証チェック"""
-    return templates.TemplateResponse("main/index.html", {"request": request})
+    return templates.TemplateResponse("main/index.html", {"request": request, "active_page": "main"})
 
 
 @app.get("/settings")
 async def settings_page(request: Request):
     """設定ページ - クライアントサイドで認証チェック"""
-    return templates.TemplateResponse("settings/index.html", {"request": request})
+    return templates.TemplateResponse("settings/index.html", {"request": request, "active_page": "settings"})
 
 
 @app.get("/admin/users")
 async def admin_users_page(request: Request):
     """ユーザー管理ページ（管理者専用）- クライアントサイドで認証チェック"""
-    return templates.TemplateResponse("admin/users.html", {"request": request})
+    return templates.TemplateResponse("admin/users.html", {"request": request, "active_page": "admin"})
+
+
+@app.get("/unpublish")
+async def unpublish_page(request: Request):
+    """スタイル非掲載ページ"""
+    return templates.TemplateResponse("unpublish/index.html", {"request": request, "active_page": "unpublish"})
 
 
 @app.get("/health")

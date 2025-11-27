@@ -71,3 +71,12 @@ widget:
     - ".karte-widget__container"
     - "[class*='_reception-Skin']"
     - "[id^='karte-']"
+
+style_list:
+  rows: "#sortStyleForm > table > tbody > tr"
+  style_number_input: "input[name*='.sortNo']"
+  unpublish_button: "img[alt='非掲載']"
+  pagination:
+    container: "#pagingControl"
+    next_button: "#pagingControl a.pgNext"
+  unpublish_complete_text: "text=登録が完了しました"

@@ -155,3 +155,105 @@ def test_task_lifecycle(mock_celery_task, client: TestClient, user_with_setting:
     # 7. タスクが削除されたことを確認
     status_res_after_delete = client.get("/api/v1/tasks/status", headers=user_with_setting["headers"])
     assert status_res_after_delete.status_code == 404
+
+
+@patch("app.api.v1.endpoints.tasks.unpublish_styles_task.apply_async")
+def test_create_unpublish_task_success(mock_celery_task, client: TestClient, user_with_setting: dict):
+    """非掲載タスク作成が成功する"""
+    data = {
+        "setting_id": user_with_setting["setting_id"],
+        "salon_url": "https://beauty.hotpepper.jp/slnH000000000/",
+        "range_start": 10,
+        "range_end": 12,
+        "exclude_numbers": "11",
+    }
+    response = client.post("/api/v1/tasks/style-unpublish", data=data, headers=user_with_setting["headers"])
+    assert response.status_code == 202
+    assert "task_id" in response.json()
+    mock_celery_task.assert_called_once()
+
+
+def test_create_unpublish_task_invalid_range(client: TestClient, user_with_setting: dict):
+    """開始番号が終了より大きい場合は400"""
+    data = {
+        "setting_id": user_with_setting["setting_id"],
+        "salon_url": "https://beauty.hotpepper.jp/slnH000000000/",
+        "range_start": 50,
+        "range_end": 10,
+    }
+    response = client.post("/api/v1/tasks/style-unpublish", data=data, headers=user_with_setting["headers"])
+    assert response.status_code == 400
+
+
+def test_create_unpublish_task_conflict(client: TestClient, user_with_setting: dict):
+    """タスク実行中は409"""
+    # 1回目でレコードを作成
+    data = {
+        "setting_id": user_with_setting["setting_id"],
+        "salon_url": "https://beauty.hotpepper.jp/slnH000000000/",
+        "range_start": 1,
+        "range_end": 2,
+    }
+    with patch("app.api.v1.endpoints.tasks.unpublish_styles_task.apply_async"):
+        first = client.post("/api/v1/tasks/style-unpublish", data=data, headers=user_with_setting["headers"])
+        assert first.status_code == 202
+
+    # 2回目は409
+    second = client.post("/api/v1/tasks/style-unpublish", data=data, headers=user_with_setting["headers"])
+    assert second.status_code == 409
+
+
+class _MockAsyncClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None):
+        class Resp:
+            status_code = 200
+            text = '<span class="numberOfResult">1,234</span>'
+        return Resp()
+
+
+@patch("app.api.v1.endpoints.tasks.httpx.AsyncClient", _MockAsyncClient)
+def test_style_count_success(client: TestClient, user_with_setting: dict):
+    """スタイル件数取得が成功する"""
+    resp = client.get(
+        "/api/v1/tasks/style-count",
+        params={"salon_url": "https://beauty.hotpepper.jp/slnH000000000/"},
+        headers=user_with_setting["headers"],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["style_count"] == 1234
+
+
+def test_style_count_invalid_domain(client: TestClient, user_with_setting: dict):
+    """HotPepper以外のドメインは400"""
+    resp = client.get(
+        "/api/v1/tasks/style-count",
+        params={"salon_url": "https://example.com/"},
+        headers=user_with_setting["headers"],
+    )
+    assert resp.status_code == 400
+
+
+def test_style_count_ssrf_like_host(client: TestClient, user_with_setting: dict):
+    """サブドメイン/ユーザー情報付きのURLは拒否される"""
+    resp1 = client.get(
+        "/api/v1/tasks/style-count",
+        params={"salon_url": "https://beauty.hotpepper.jp.attacker.com/"},
+        headers=user_with_setting["headers"],
+    )
+    assert resp1.status_code == 400
+
+    resp2 = client.get(
+        "/api/v1/tasks/style-count",
+        params={"salon_url": "https://beauty.hotpepper.jp@10.0.0.5/"},
+        headers=user_with_setting["headers"],
+    )
+    assert resp2.status_code == 400
