@@ -13,6 +13,11 @@ from app.schemas.user import User, UserCreate, UserUpdate, UserList
 router = APIRouter()
 
 
+def _normalize_email(email: str) -> str:
+    """メールアドレスを正規化（前後空白除去 + 小文字化）"""
+    return email.strip().lower()
+
+
 @router.get("/", response_model=UserList)
 async def get_users(
     skip: int = 0,
@@ -34,15 +39,23 @@ async def create_user(
     current_admin: User = Depends(get_current_admin_user)
 ):
     """ユーザー作成（管理者のみ）"""
+    normalized_email = _normalize_email(user.email)
+
     # メールアドレス重複チェック
-    db_user = crud_user.get_user_by_email(db, email=user.email)
+    db_user = crud_user.get_user_by_email(db, email=normalized_email)
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User with this email already exists"
         )
     hashed_password = get_password_hash(user.password)
-    return crud_user.create_user(db, user=user, hashed_password=hashed_password)
+    normalized_user = UserCreate(
+        email=normalized_email,
+        password=user.password,
+        role=user.role,
+        is_active=user.is_active,
+    )
+    return crud_user.create_user(db, user=normalized_user, hashed_password=hashed_password)
 
 
 @router.get("/{user_id}", response_model=User)
@@ -69,9 +82,25 @@ async def update_user(
     current_admin: User = Depends(get_current_admin_user)
 ):
     """ユーザー情報更新（管理者のみ、パスワード更新含む）"""
+    # 自身の非アクティブ化・ロール降格を防止
+    if user_id == current_admin.id:
+        if user_update.is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot deactivate your own account"
+            )
+        if user_update.role and user_update.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change your own role"
+            )
+
+    normalized_email: Optional[str] = None
+
     # メールアドレス重複チェック（変更する場合）
     if user_update.email:
-        existing_user = crud_user.get_user_by_email(db, user_update.email)
+        normalized_email = _normalize_email(user_update.email)
+        existing_user = crud_user.get_user_by_email(db, normalized_email)
         if existing_user and existing_user.id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -84,6 +113,8 @@ async def update_user(
         hashed_password = get_password_hash(user_update.password)
         # UserUpdateスキーマからpasswordを除外し、hashed_passwordに置き換え
         update_data = user_update.model_dump(exclude_unset=True, exclude={'password'})
+        if normalized_email:
+            update_data["email"] = normalized_email
 
         # ユーザー取得
         db_user = crud_user.get_user_by_id(db, user_id)
@@ -105,6 +136,9 @@ async def update_user(
         return db_user
     else:
         # パスワード更新なしの通常更新
+        if normalized_email:
+            # model_copyでemailだけ正規化値に差し替え
+            user_update = user_update.model_copy(update={"email": normalized_email})
         db_user = crud_user.update_user(db, user_id, user_update)
         if not db_user:
             raise HTTPException(

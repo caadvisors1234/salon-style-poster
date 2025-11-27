@@ -1,8 +1,10 @@
 """
 User CRUD操作
 """
-from sqlalchemy.orm import Session
 from typing import List, Optional
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
@@ -33,7 +35,13 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
     Returns:
         Optional[User]: ユーザー（存在しない場合はNone）
     """
-    return db.query(User).filter(User.email == email).first()
+    # 既存データに大文字が含まれても取得できるように小文字比較
+    normalized_email = email.strip().lower()
+    return (
+        db.query(User)
+        .filter(func.lower(User.email) == normalized_email)
+        .first()
+    )
 
 
 def get_users(db: Session, skip: int = 0, limit: int = 100, role: Optional[str] = None) -> List[User]:
