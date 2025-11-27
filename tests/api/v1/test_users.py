@@ -2,8 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.crud.user import create_user
+from app.crud.user import create_user, get_user_by_email
 from app.schemas.user import UserCreate
 from app.core.security import get_password_hash
 
@@ -98,3 +97,48 @@ def test_delete_user_as_admin(client: TestClient, admin_user_and_headers: dict, 
         headers=admin_user_and_headers
     )
     assert response.status_code == 204
+
+
+def test_admin_cannot_deactivate_self(client: TestClient, admin_user_and_headers: dict, db_session: Session):
+    """管理者は自分自身を非アクティブ化できない"""
+    admin = get_user_by_email(db_session, "admin@test.com")
+    response = client.put(
+        f"/api/v1/users/{admin.id}",
+        headers=admin_user_and_headers,
+        json={"is_active": False}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot deactivate your own account"
+
+
+def test_admin_cannot_change_own_role(client: TestClient, admin_user_and_headers: dict, db_session: Session):
+    """管理者は自分自身のロールを変更できない"""
+    admin = get_user_by_email(db_session, "admin@test.com")
+    response = client.put(
+        f"/api/v1/users/{admin.id}",
+        headers=admin_user_and_headers,
+        json={"role": "user"}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot change your own role"
+
+
+def test_email_normalization_and_duplicate_prevention(client: TestClient, admin_user_and_headers: dict):
+    """メールアドレスを正規化し、大小文字違いの重複を防ぐ"""
+    response = client.post(
+        "/api/v1/users",
+        headers=admin_user_and_headers,
+        json={"email": "MixedCase@Example.com", "password": "password123", "role": "user"}
+    )
+    assert response.status_code == 201
+    first_user = response.json()
+    assert first_user["email"] == "mixedcase@example.com"
+
+    # 同じメールを小文字で再作成すると409
+    dup_response = client.post(
+        "/api/v1/users",
+        headers=admin_user_and_headers,
+        json={"email": "mixedcase@example.com", "password": "password123", "role": "user"}
+    )
+    assert dup_response.status_code == 409
+    assert dup_response.json()["detail"] == "User with this email already exists"

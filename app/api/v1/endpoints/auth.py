@@ -21,6 +21,11 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 
+def _normalize_email(email: str) -> str:
+    """メールアドレスを正規化（前後空白除去 + 小文字化）"""
+    return email.strip().lower()
+
+
 @router.post("/token", response_model=Token)
 @limiter.limit("5/minute")
 async def login(
@@ -41,8 +46,10 @@ async def login(
     Raises:
         HTTPException: 認証失敗時
     """
+    normalized_email = _normalize_email(form_data.username)
+
     # ユーザー取得
-    user = crud_user.get_user_by_email(db, email=form_data.username)
+    user = crud_user.get_user_by_email(db, email=normalized_email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -58,10 +65,18 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # アクティブ状態チェック
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # アクセストークン生成
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.email},
+        data={"sub": normalized_email},
         expires_delta=access_token_expires
     )
 
