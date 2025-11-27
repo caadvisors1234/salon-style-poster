@@ -2,6 +2,7 @@
 SALON BOARD スタイル自動投稿サービス
 Playwrightを使用したブラウザ自動化
 """
+import logging
 import yaml
 import pandas as pd
 import time
@@ -20,6 +21,8 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 from playwright_stealth import stealth_sync
+
+logger = logging.getLogger(__name__)
 
 
 class StylePostError(Exception):
@@ -74,48 +77,123 @@ class SalonBoardStylePoster:
 
     def _start_browser(self):
         """ブラウザ起動"""
-        print("ブラウザを起動中...")
+        logger.info("ブラウザを起動中...")
         self.playwright = sync_playwright().start()
 
         launch_kwargs = {
             "headless": self.headless,
             "slow_mo": self.slow_mo,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-extensions",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-site-isolation-trials",
+                "--ignore-certificate-errors",
+                "--disable-features=PrivacySandboxSettings3",
+                "--disable-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
         }
 
         try:
             self.browser = self.playwright.chromium.launch(channel="chrome", **launch_kwargs)
-            print("  - ChromeチャンネルのChromiumを使用します")
+            logger.info("ChromeチャンネルのChromiumを使用します")
         except Exception as channel_error:
-            print(f"⚠ Chromeチャンネル起動に失敗: {channel_error}。Playwright同梱Chromiumで再試行します。")
+            logger.warning("Chromeチャンネル起動に失敗: %s。Playwright同梱Chromiumで再試行します。", channel_error)
             self.browser = self.playwright.chromium.launch(**launch_kwargs)
 
         # モバイル実機に近いブラウザコンテキスト作成（自動化検知対策）
         self.context = self.browser.new_context(
-            viewport={"width": 412, "height": 915},  # Pixel 7 Pro 相当
+            viewport={"width": 1366, "height": 768},  # 一般的なデスクトップ解像度
             user_agent=(
-                "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro Build/TQ3A.230805.001)"
-                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
             ),
-            device_scale_factor=2.75,
-            is_mobile=True,
-            has_touch=True,
+            device_scale_factor=1.0,
+            is_mobile=False,
+            has_touch=False,
             locale="ja-JP",
             timezone_id="Asia/Tokyo"
         )
+        self.context.set_extra_http_headers(
+            {
+                "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Upgrade-Insecure-Requests": "1",
+                "DNT": "1",
+                "Sec-CH-UA": "\"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\", \"Not:A-Brand\";v=\"99\"",
+                "Sec-CH-UA-Mobile": "?0",
+                "Sec-CH-UA-Platform": "\"Linux\"",
+            }
+        )
 
-        # WebDriverフラグやデバイス情報を人間と揃える
+        # 指紋をデスクトップChromeに揃える
         self.context.add_init_script(
             """
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Linux armv8l'});
-            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 5});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Linux x86_64'});
             Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-            if (!('ontouchstart' in window)) {
-                Object.defineProperty(window, 'ontouchstart', {value: null, writable: true});
+            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+            Object.defineProperty(navigator, 'language', {get: () => 'ja-JP'});
+            Object.defineProperty(navigator, 'languages', {get: () => ['ja-JP', 'ja', 'en-US', 'en']});
+            Object.defineProperty(navigator, 'vendor', {get: () => 'Google Inc.'});
+            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 0});
+
+            // PluginArray/MimeTypeArray を簡易実装で安定化
+            const buildPlugin = (name) => ({ name, filename: name.toLowerCase().replace(/\\s+/g, '') + '.dll', description: name });
+            const plugins = [
+              buildPlugin('Chrome PDF Viewer'),
+              buildPlugin('Chromium PDF Viewer'),
+              buildPlugin('Microsoft Edge PDF Viewer'),
+              buildPlugin('PDF Viewer'),
+            ];
+            const mimeTypes = [
+              { type: 'application/pdf', suffixes: 'pdf', description: 'PDF', enabledPlugin: plugins[0] },
+            ];
+            Object.defineProperty(navigator, 'plugins', { get: () => plugins });
+            Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypes });
+
+            // permissions 振る舞いを安定化（notifications は denied に固定）
+            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+            if (originalQuery) {
+              window.navigator.permissions.query = (parameters) => {
+                if (parameters && parameters.name === 'notifications') {
+                  return Promise.resolve({ state: 'denied' });
+                }
+                return originalQuery(parameters);
+              };
             }
-            if (!window.matchMedia) {
-                window.matchMedia = () => ({ matches: false, addListener: () => {}, removeListener: () => {} });
-            }
+
+            // WebGL のベンダ/レンダラを固定
+            const patchWebGL = () => {
+              const proto = WebGLRenderingContext && WebGLRenderingContext.prototype;
+              if (!proto || proto.__patched) return;
+              const origGetParameter = proto.getParameter;
+              proto.getParameter = function (pname) {
+                if (pname === 0x1F00) { // RENDERER
+                  return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620, OpenGL 4.6)';
+                }
+                if (pname === 0x1F01) { // VENDOR
+                  return 'Google Inc. (Intel)';
+                }
+                return origGetParameter.apply(this, [pname]);
+              };
+              proto.__patched = true;
+            };
+
+            // Canvas を安定化（余計なノイズを入れずに値を固定化）
+            const patchCanvas = () => {
+              const proto = HTMLCanvasElement && HTMLCanvasElement.prototype;
+              if (!proto || proto.__patched) return;
+              const origToDataURL = proto.toDataURL;
+              proto.toDataURL = function (...args) {
+                return origToDataURL.apply(this, args);
+              };
+              proto.__patched = true;
+            };
+
+            patchWebGL();
+            patchCanvas();
             """
         )
 
@@ -129,7 +207,7 @@ class SalonBoardStylePoster:
         # デフォルトタイムアウト設定（3分）
         self.page.set_default_timeout(180000)
 
-        print("✓ ブラウザ起動完了")
+        logger.info("ブラウザ起動完了")
 
     def _close_browser(self):
         """ブラウザ終了"""
@@ -137,14 +215,14 @@ class SalonBoardStylePoster:
             try:
                 self.context.close()
             except Exception as e:
-                print(f"⚠ ブラウザコンテキスト終了時に警告: {e}")
+                logger.warning("ブラウザコンテキスト終了時に警告: %s", e)
             finally:
                 self.context = None
         if self.browser:
             self.browser.close()
         if self.playwright:
             self.playwright.stop()
-        print("✓ ブラウザ終了")
+        logger.info("ブラウザ終了")
 
     def _take_screenshot(self, prefix: str = "error") -> str:
         """
@@ -162,7 +240,7 @@ class SalonBoardStylePoster:
 
         if self.page:
             self.page.screenshot(path=str(filepath))
-            print(f"✓ スクリーンショット保存: {filepath}")
+            logger.info("スクリーンショット保存: %s", filepath)
             return str(filepath)
         return ""
 
@@ -175,13 +253,13 @@ class SalonBoardStylePoster:
         if "/CNB/imgreg/imgUpload/" in url:
             message = f"{url} -> {failure_text}"
             self._last_failed_upload_reason = message
-            print(f"⚠ リクエスト失敗検出: {message}")
+            logger.warning("リクエスト失敗検出: %s", message)
 
     def _handle_request(self, request: Request):
         """Akamai関連リクエストの観測"""
         url = request.url
         if any(token in url for token in ("bm-verify", "_abck", "akamai")):
-            print(f"    > Akamaiリクエスト観測: {url} ({request.method})")
+            logger.info("Akamaiリクエスト観測: %s (%s)", url, request.method)
 
     def _handle_response(self, response: Response):
         """Akamai関連レスポンスの観測"""
@@ -191,9 +269,9 @@ class SalonBoardStylePoster:
                 body_hint = ""
                 if response.status >= 400:
                     body_hint = f", body={response.text()[:120]}"
-                print(f"    > Akamaiレスポンス観測: {url} (status={response.status}{body_hint})")
+                logger.info("Akamaiレスポンス観測: %s (status=%s%s)", url, response.status, body_hint)
             except Exception:
-                print(f"    > Akamaiレスポンス観測: {url} (status={response.status})")
+                logger.info("Akamaiレスポンス観測: %s (status=%s)", url, response.status)
 
     def _get_cookie_value(self, name: str) -> Optional[str]:
         """ブラウザコンテキストから特定Cookie値を取得"""
@@ -202,7 +280,7 @@ class SalonBoardStylePoster:
         try:
             cookies = self.context.cookies()
         except Exception as e:
-            print(f"⚠ Cookie取得に失敗しました ({name}): {e}")
+            logger.warning("Cookie取得に失敗しました (%s): %s", name, e)
             return None
         for cookie in cookies:
             if cookie.get("name") == name:
@@ -268,22 +346,22 @@ class SalonBoardStylePoster:
         target_url = "https://salonboard.com/CNB/imgreg/imgUpload/"
         try:
             response = self.context.request.get(target_url)
-            print(f"    > Akamaiウォームアップリクエスト: {target_url} (status={response.status})")
+            logger.info("Akamaiウォームアップリクエスト: %s (status=%s)", target_url, response.status)
         except Exception as warmup_error:
-            print(f"⚠ Akamaiウォームアップリクエスト失敗: {warmup_error}")
+            logger.warning("Akamaiウォームアップリクエスト失敗: %s", warmup_error)
 
     def _ensure_akamai_readiness(self, attempts: int = 3, timeout_ms: int = 15000) -> bool:
         """Akamaiセッションが安定するまで刺激と再確認を行う"""
         for attempt in range(1, attempts + 1):
             if self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False):
                 return True
-            print(f"    > Akamaiセンサーが未完了のため刺激 #{attempt}")
+            logger.info("Akamaiセンサーが未完了のため刺激 #%s", attempt)
             self._stimulate_akamai_sensor()
             self._warmup_akamai_endpoints()
         ready = self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False)
         if ready:
             return True
-        print("⚠ Akamaiセッションが安定しないまま次の処理へ進みます")
+        logger.warning("Akamaiセッションが安定しないまま次の処理へ進みます")
         return False
 
     def _wait_for_akamai_clearance(self, timeout_ms: int = 15000, *, strict: bool = True) -> bool:
@@ -301,10 +379,10 @@ class SalonBoardStylePoster:
             cookie_value = self._get_cookie_value("_abck")
             summary = self._summarize_abck_value(cookie_value)
             if summary != last_summary:
-                print(f"    > _abck cookie 状態: {summary}")
+                logger.info("_abck cookie 状態: %s", summary)
                 last_summary = summary
             if cookie_value and ("~0~" in cookie_value or "~1~" in cookie_value):
-                print("  - Akamaiセッション検証完了 (_abck cookie OK)")
+                logger.info("Akamaiセッション検証完了 (_abck cookie OK)")
                 return True
             self.page.wait_for_timeout(250)
 
@@ -314,7 +392,7 @@ class SalonBoardStylePoster:
         )
         if strict:
             raise RuntimeError(message)
-        print(f"⚠ {message}")
+        logger.warning("%s", message)
         return False
 
     def _check_robot_detection(self) -> bool:
@@ -334,7 +412,7 @@ class SalonBoardStylePoster:
                 # 最初の要素が実際に表示されているかチェック
                 try:
                     if locator.first.is_visible(timeout=1000):
-                        print(f"✗ ロボット認証検出（セレクタ: {selector}）")
+                        logger.warning("ロボット認証検出（セレクタ: %s）", selector)
                         self._take_screenshot("robot-detection")
                         return True
                 except Exception:
@@ -347,7 +425,7 @@ class SalonBoardStylePoster:
             if locator.count() > 0:
                 try:
                     if locator.first.is_visible(timeout=1000):
-                        print(f"✗ ロボット認証検出（テキスト: {text}）")
+                        logger.warning("ロボット認証検出（テキスト: %s）", text)
                         self._take_screenshot("robot-detection")
                         return True
                 except Exception:
@@ -414,11 +492,188 @@ class SalonBoardStylePoster:
         else:
             time.sleep(delay_ms / 1000)
 
+    def _select_salon_if_needed(self, salon_info: Optional[Dict]) -> None:
+        """
+        複数店舗ページが表示された場合、salon_info に基づいてサロンを選択する
+        """
+        if not self.page:
+            return
+        salon_config = self.selectors.get("salon_selection", {})
+        salon_list_table = salon_config.get("salon_list_table")
+        salon_list_row = salon_config.get("salon_list_row")
+        salon_id_cell = salon_config.get("salon_id_cell")
+        salon_name_cell = salon_config.get("salon_name_cell")
+
+        if not salon_list_table or not salon_list_row:
+            return
+
+        table = self.page.locator(salon_list_table)
+        try:
+            table.wait_for(state="visible", timeout=5000)
+            table_count = table.count()
+        except Exception:
+            table_count = 0
+        if table_count == 0:
+            logger.debug("サロン選択テーブルが見つかりません: selector=%s", salon_list_table)
+            return
+
+        logger.info("複数店舗アカウント検出 - サロン選択中...")
+        logger.debug("サロン選択テーブル検出: selector=%s", salon_list_table)
+
+        if not salon_info:
+            raise Exception("複数店舗アカウントですが、salon_infoが指定されていません")
+
+        rows = self.page.locator(salon_list_row).all()
+        logger.debug("サロン候補行数: %s", len(rows))
+        target_id = (salon_info.get("id") or "").strip()
+        target_name = (salon_info.get("name") or "").strip()
+
+        for row in rows:
+            try:
+                salon_id = row.locator(salon_id_cell).text_content().strip() if salon_id_cell else ""
+                salon_name = row.locator(salon_name_cell).text_content().strip() if salon_name_cell else ""
+            except Exception:
+                continue
+
+            logger.debug("サロン候補: id=%s name=%s target_id=%s target_name=%s", salon_id, salon_name, target_id, target_name)
+            # ID優先で一致チェック、なければ名前でチェック
+            if (target_id and salon_id == target_id) or (not target_id and target_name and salon_name == target_name):
+                logger.info("サロン選択: %s (ID: %s)", salon_name or target_name, salon_id or target_id)
+                row.locator("a").first.click()
+                # 遷移完了を軽く待つ
+                self.page.wait_for_load_state("domcontentloaded", timeout=30000)
+                return
+
+        raise Exception(f"指定されたサロンが見つかりませんでした: {salon_info}")
+
+    def _wait_for_dashboard_ready(
+        self,
+        *,
+        timeout_ms: int = 60000,
+        header_selector: str = "#headerNavigationBar",
+        dashboard_selector: Optional[str] = None,
+    ) -> bool:
+        """
+        ダッシュボード（ヘッダー）表示をポーリングで確認する
+
+        Args:
+            timeout_ms: タイムアウト
+            header_selector: ヘッダーのセレクタ
+            dashboard_selector: セレクタ設定上のダッシュボード識別子
+
+        Returns:
+            bool: 表示を確認できた場合 True
+        """
+        if not self.page:
+            return False
+
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        check_interval_ms = 1000
+
+        while time.monotonic() < deadline:
+            try:
+                if self.page.locator(header_selector).first.is_visible(timeout=2000):
+                    logger.info("ヘッダー検出: %s", header_selector)
+                    return True
+            except Exception:
+                pass
+
+            if dashboard_selector:
+                try:
+                    if self.page.locator(dashboard_selector).first.is_visible(timeout=2000):
+                        logger.info("ダッシュボードナビ検出: %s", dashboard_selector)
+                        return True
+                except Exception:
+                    pass
+
+            # デバッグ情報
+            try:
+                current_url = self.page.url
+                title = self.page.title()
+            except Exception:
+                current_url = "(unavailable)"
+                title = "(unavailable)"
+            logger.debug(
+                "ダッシュボード待機中: url=%s title=%s _abck=%s",
+                current_url,
+                title,
+                self._summarize_abck_value(self._get_cookie_value("_abck")),
+            )
+            self.page.wait_for_timeout(check_interval_ms)
+
+        return False
+
+    def _wait_for_upload_completion(
+        self,
+        upload_area_selector: str,
+        modal_selector: str,
+        timeout_ms: int = 30000
+    ) -> None:
+        """
+        画像アップロード完了をDOMシグナルで確認する
+        """
+        if not self.page:
+            raise Exception("ページが初期化されていません")
+
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        poll_ms = 600
+        last_log = 0.0
+
+        while time.monotonic() < deadline:
+            modal_visible = False
+            try:
+                modal = self.page.locator(modal_selector)
+                if modal.count() > 0:
+                    modal_visible = modal.first.is_visible(timeout=500)
+            except Exception:
+                modal_visible = False
+
+            preview_ok = False
+            src_text = ""
+            bg_image = ""
+            try:
+                upload_area = self.page.locator(upload_area_selector)
+                if upload_area.count() > 0:
+                    src_text = upload_area.first.get_attribute("src") or ""
+                    try:
+                        bg_image = upload_area.first.evaluate(
+                            "el => (window.getComputedStyle(el).backgroundImage || '')"
+                        ) or ""
+                    except Exception:
+                        bg_image = ""
+                    if src_text and "noimage" not in src_text.lower():
+                        preview_ok = True
+                    if "url(" in bg_image.lower() and "noimage" not in bg_image.lower():
+                        preview_ok = True
+            except Exception:
+                pass
+
+            if not modal_visible and preview_ok:
+                logger.info("画像アップロード後のプレビューを確認しました")
+                return
+
+            now = time.monotonic()
+            if now - last_log > 2.5:
+                abck = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                logger.debug(
+                    "アップロード完了待機中: modal_visible=%s src=%s bg=%s _abck=%s",
+                    modal_visible,
+                    src_text[:120],
+                    bg_image[:120],
+                    abck,
+                )
+                last_log = now
+
+            self.page.wait_for_timeout(poll_ms)
+
+        raise Exception(f"画像アップロード完了を確認できませんでした (timeout={timeout_ms}ms)")
+
     def _click_and_wait(
         self,
         selector: str,
         click_timeout: Optional[int] = None,
-        load_timeout: Optional[int] = None
+        load_timeout: Optional[int] = None,
+        load_state: str = "domcontentloaded",
     ):
         """
         クリック＆待機（ページ遷移対応）
@@ -431,11 +686,19 @@ class SalonBoardStylePoster:
         click_timeout = click_timeout or self.TIMEOUT_CLICK
         load_timeout = load_timeout or self.TIMEOUT_LOAD
 
+        logger.debug(
+            "クリック準備: selector=%s, click_timeout=%sms, load_timeout=%sms, load_state=%s",
+            selector,
+            click_timeout,
+            load_timeout,
+            load_state,
+        )
         self._human_pause()
         self.page.locator(selector).first.click(timeout=click_timeout)
         self._human_pause(base_ms=600, jitter_ms=200)
-        self.page.wait_for_load_state("networkidle", timeout=load_timeout)
+        self.page.wait_for_load_state(load_state, timeout=load_timeout)
         self._human_pause(base_ms=800, jitter_ms=250)
+        logger.debug("クリック完了: selector=%s", selector)
 
         if self._check_robot_detection():
             raise Exception("ロボット認証が検出されました")
@@ -449,13 +712,13 @@ class SalonBoardStylePoster:
             password: SALON BOARDパスワード
             salon_info: サロン情報（複数店舗アカウント用）{"id": "...", "name": "..."}
         """
-        print("ログイン処理開始...")
+        logger.info("ログイン処理開始")
         login_config = self.selectors["login"]
 
         # ログインページへ移動
+        logger.debug("ログインページへ遷移: %s", login_config["url"])
         self.page.goto(login_config["url"])
         self._human_pause(base_ms=900, jitter_ms=300)
-
         if self._check_robot_detection():
             raise Exception("ログインページでロボット認証が検出されました")
 
@@ -469,18 +732,37 @@ class SalonBoardStylePoster:
         # ログインボタンクリック
         self._click_and_wait(login_config["login_button"])
 
+        # 複数店舗選択が必要な場合はここで実施（ヘッダー待機より先に行う）
+        self._select_salon_if_needed(salon_info)
+
+        # ログイン完了判定: ヘッダー/ダッシュボード表示をポーリングで確認
+        dashboard_selector = login_config["dashboard_global_navi"]
+        if not self._wait_for_dashboard_ready(
+            timeout_ms=60000,
+            header_selector="#headerNavigationBar",
+            dashboard_selector=dashboard_selector,
+        ):
+            screenshot_path = self._take_screenshot("login-wait-timeout")
+            logger.error("ログイン後のヘッダー待機に失敗 (timeout=%sms)", 60000)
+            raise StylePostError(
+                "ログイン後のトップページ読込みが完了しませんでした。",
+                screenshot_path=screenshot_path
+            )
+
         # サロン選択ロジック（複数店舗アカウント対応）
         salon_config = self.selectors.get("salon_selection", {})
         salon_list_table = salon_config.get("salon_list_table")
 
         if salon_list_table and self.page.locator(salon_list_table).count() > 0:
-            print("複数店舗アカウント検出 - サロン選択中...")
+            logger.info("複数店舗アカウント検出 - サロン選択中...")
+            logger.debug("サロン一覧テーブル検出: selector=%s", salon_list_table)
 
             if not salon_info:
                 raise Exception("複数店舗アカウントですが、salon_infoが指定されていません")
 
             rows = self.page.locator(salon_config["salon_list_row"]).all()
             found = False
+            logger.debug("サロン候補行数: %s", len(rows))
 
             for row in rows:
                 salon_id = row.locator(salon_config["salon_id_cell"]).text_content().strip()
@@ -489,27 +771,23 @@ class SalonBoardStylePoster:
                 # IDまたは名前で一致確認
                 if (salon_info.get("id") and salon_id == salon_info["id"]) or \
                    (salon_info.get("name") and salon_name == salon_info["name"]):
-                    print(f"✓ サロン選択: {salon_name} (ID: {salon_id})")
+                    logger.info("サロン選択: %s (ID: %s)", salon_name, salon_id)
                     row.locator("a").first.click()
-                    self.page.wait_for_load_state("networkidle")
+                    # サロン選択後はヘッダーを再確認
+                    self.page.wait_for_selector("#headerNavigationBar", timeout=60000, state="visible")
                     found = True
                     break
 
             if not found:
                 raise Exception(f"指定されたサロンが見つかりませんでした: {salon_info}")
 
-        # ログイン成功確認（30秒タイムアウト）
+        # ログイン成功確認（もう一度ダッシュボードセレクタを軽く確認）
         try:
-            self.page.wait_for_selector(login_config["dashboard_global_navi"], timeout=30000)
-            print("✓ ログイン成功")
-        except Exception as e:
-            # ログイン失敗時のスクリーンショット取得
-            screenshot_path = self._take_screenshot("login-failure")
-            print(f"✗ ログイン失敗: {e}")
-            raise StylePostError(
-                "ログインに失敗しました。ユーザーID/パスワードを確認してください。",
-                screenshot_path=screenshot_path
-            ) from e
+            self.page.wait_for_selector(dashboard_selector, timeout=10000, state="visible")
+            logger.info("ログイン成功 (ダッシュボードナビ二次確認)")
+        except PlaywrightTimeoutError:
+            # 二次確認はベストエフォート（ここではエラーにしない）
+            logger.warning("ログイン後のダッシュボードナビ二次確認をスキップ（非致命）")
 
     def step_navigate_to_style_list_page(self, use_direct_url: bool = False):
         """
@@ -518,27 +796,37 @@ class SalonBoardStylePoster:
         Args:
             use_direct_url: True の場合、URLで直接遷移（エラー回復時用）
         """
-        print("スタイル一覧ページへ移動中...")
+        logger.info("スタイル一覧ページへ移動中...")
 
         if use_direct_url:
             # 直接URLで遷移（エラー回復時）
-            print("  - 直接URLで遷移します...")
+            logger.info("直接URLで遷移します...")
             current_url = self.page.url
             # 現在のURLからベースURLを取得
             base_url = current_url.split('/CNB/')[0] if '/CNB/' in current_url else 'https://salonboard.com'
             style_list_url = f"{base_url}/CNB/draft/styleList/"
-            print(f"  - 遷移先: {style_list_url}")
+            logger.info("遷移先: %s", style_list_url)
             self.page.goto(style_list_url, timeout=self.TIMEOUT_LOAD)
-            self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
+            self.page.wait_for_load_state("domcontentloaded", timeout=self.TIMEOUT_LOAD)
+            logger.debug("直接URL遷移完了: current_url=%s", self.page.url)
         else:
             # 通常のナビゲーション
             nav_config = self.selectors["navigation"]
 
             # 掲載管理 → スタイル管理
-            self._click_and_wait(nav_config["keisai_kanri"])
-            self._click_and_wait(nav_config["style"])
+            try:
+                self._click_and_wait(nav_config["keisai_kanri"], load_state="domcontentloaded")
+                self._click_and_wait(nav_config["style"], load_state="domcontentloaded")
+            except Exception as nav_error:
+                logger.warning("通常ナビゲーションに失敗、直接URLで再試行します: %s", nav_error)
+                current_url = self.page.url
+                base_url = current_url.split('/CNB/')[0] if '/CNB/' in current_url else 'https://salonboard.com'
+                style_list_url = f"{base_url}/CNB/draft/styleList/"
+                self.page.goto(style_list_url, timeout=self.TIMEOUT_LOAD)
+                self.page.wait_for_load_state("domcontentloaded", timeout=self.TIMEOUT_LOAD)
+            logger.debug("ナビゲーション完了: current_url=%s", self.page.url)
 
-        print("✓ スタイル一覧ページへ移動完了")
+        logger.info("スタイル一覧ページへ移動完了")
 
     def _get_error_field_from_exception(self, e: Exception) -> str:
         """
@@ -584,22 +872,22 @@ class SalonBoardStylePoster:
         """
         # まず通常のナビゲーションを試行
         try:
-            print("エラー発生により、スタイル一覧ページに戻ります...")
+            logger.info("エラー発生により、スタイル一覧ページに戻ります")
             self.step_navigate_to_style_list_page()
-            print("✓ スタイル一覧ページに戻りました")
+            logger.info("スタイル一覧ページに戻りました")
             return True
         except Exception as nav_error:
-            print(f"✗ 通常のナビゲーションに失敗: {nav_error}")
+            logger.warning("通常のナビゲーションに失敗: %s", nav_error)
 
         # 通常のナビゲーションが失敗した場合、直接URLで遷移
         try:
-            print("直接URLで遷移を試みます...")
+            logger.info("直接URLで遷移を試みます")
             self.step_navigate_to_style_list_page(use_direct_url=True)
-            print("✓ スタイル一覧ページに戻りました（直接URL）")
+            logger.info("スタイル一覧ページに戻りました（直接URL）")
             return True
         except Exception as direct_error:
-            print(f"✗ 直接URL遷移にも失敗: {direct_error}")
-            print("⚠ スタイル一覧ページへの戻りを諦めます。次のスタイル処理時に再試行します。")
+            logger.error("直接URL遷移にも失敗: %s", direct_error)
+            logger.warning("スタイル一覧ページへの戻りを諦めます。次のスタイル処理時に再試行します。")
             return False
 
     def step_process_single_style(self, style_data: Dict, image_path: str) -> List[Dict[str, object]]:
@@ -620,32 +908,32 @@ class SalonBoardStylePoster:
 
         # 新規登録ページへ
         try:
-            print("新規登録ボタンをクリック中...")
+            logger.info("新規登録ボタンをクリック中...")
             self._click_and_wait(form_config["new_style_button"])
-            print("✓ 新規登録ページへ移動完了")
+            logger.info("新規登録ページへ移動完了")
         except Exception as e:
             raise StylePostError(f"新規登録ページへの移動に失敗しました: {e}", self._take_screenshot("error-new-style-page"))
 
         # 画像アップロード
         try:
-            print("画像アップロード開始...")
+            logger.info("画像アップロード開始...")
             self._last_failed_upload_reason = None
 
             # アップロード開始前の待機（通信の安定化）
-            print("  - Akamaiセッションの検証状態を確認中...")
+            logger.info("Akamaiセッションの検証状態を確認中...")
             clearance_ready = self._ensure_akamai_readiness()
             if not clearance_ready:
-                print("    > センサー刺激後も完了しないため、アップロード処理で完了を誘発します。")
-            print("  - 通信安定化のためランダム待機中...")
+                logger.info("センサー刺激後も完了しないため、アップロード処理で完了を誘発します。")
+            logger.info("通信安定化のためランダム待機中...")
             self._human_pause(base_ms=1100, jitter_ms=450, minimum_ms=850)
 
-            print(f"  - アップロードエリアをクリック中...")
+            logger.info("アップロードエリアをクリック中...")
             self.page.locator(form_config["image"]["upload_area"]).click(timeout=self.TIMEOUT_CLICK)
             self._human_pause(base_ms=700, jitter_ms=250, minimum_ms=400)
-            print(f"  - モーダル表示待機中...")
+            logger.info("モーダル表示待機中...")
             self.page.wait_for_selector(form_config["image"]["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=750, jitter_ms=260, minimum_ms=450)
-            print(f"  - 画像ファイル選択準備中: {image_path}")
+            logger.info("画像ファイル選択準備中: %s", image_path)
 
             self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
             try:
@@ -656,7 +944,7 @@ class SalonBoardStylePoster:
             except PlaywrightTimeoutError:
                 raise Exception("画像選択後に送信ボタンが有効になりませんでした")
 
-            print("  - 画像処理のためランダム待機中...")
+            logger.info("画像処理のためランダム待機中...")
             self._human_pause(
                 base_ms=int(self.IMAGE_PROCESSING_WAIT * 1000),
                 jitter_ms=800,
@@ -665,7 +953,7 @@ class SalonBoardStylePoster:
 
             # 送信ボタンの状態を確認
             submit_button = self.page.locator(form_config["image"]["submit_button_active"])
-            print(f"  - 送信ボタン確認中...")
+            logger.info("送信ボタン確認中...")
 
             # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
@@ -677,12 +965,12 @@ class SalonBoardStylePoster:
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350, with_mouse_move=True)
 
             # Akamaiの動的チェックを回避するため、クリック直前にセンサーを再度刺激
-            print("  - Akamaiセンサーを刺激中...")
+            logger.info("Akamaiセンサーを刺激中...")
             self._stimulate_akamai_sensor()
             self._human_pause(base_ms=800, jitter_ms=300, minimum_ms=500, with_mouse_move=True)
 
             # 強制的にクリック（JavaScriptで実行）
-            print(f"  - 送信ボタンクリック中（JavaScript実行）...")
+            logger.info("送信ボタンクリック中（JavaScript実行）...")
             upload_predicate = lambda response: (
                 "/CNB/imgreg/imgUpload/doUpload" in response.url
                 and response.request.method.upper() == "POST"
@@ -695,7 +983,7 @@ class SalonBoardStylePoster:
                 with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
                     submit_button.evaluate("el => el.click()")
                 upload_response = upload_waiter.value
-                print(f"  - 画像アップロードレスポンス取得: status={upload_response.status}, url={upload_response.url}")
+                logger.info("画像アップロードレスポンス取得: status=%s, url=%s", upload_response.status, upload_response.url)
             except PlaywrightTimeoutError:
                 reason = self._last_failed_upload_reason or "imgUpload/doUpload のレスポンス待機がタイムアウトしました"
                 manual_upload_reason = reason
@@ -708,7 +996,7 @@ class SalonBoardStylePoster:
                 except PlaywrightTimeoutError:
                     modal_hidden = False
                 if modal_hidden:
-                    print(f"⚠ {reason}。モーダルは既に閉じているため続行します。")
+                    logger.warning("%s。モーダルは既に閉じているため続行します。", reason)
                 else:
                     raise Exception(reason)
 
@@ -730,7 +1018,7 @@ class SalonBoardStylePoster:
                     f"画像アップロードリクエストがブラウザ側で中断されました (image={image_filename})。"
                     "SALON BOARDで手動アップロードを実施してください。"
                 )
-                print(f"⚠ {warning_message}")
+                logger.warning("%s", warning_message)
                 manual_upload_events.append(
                     {
                         "row_number": row_number,
@@ -746,30 +1034,28 @@ class SalonBoardStylePoster:
 
             self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
 
-            print(f"  - モーダル非表示待機中...")
+            logger.info("モーダル非表示待機中...")
             try:
                 self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=self.TIMEOUT_IMAGE_UPLOAD)
             except PlaywrightTimeoutError as modal_timeout:
                 try:
                     self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=1000)
-                    print("⚠ モーダル非表示待機がタイムアウトしましたが既に閉じています。")
+                    logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
                 except PlaywrightTimeoutError:
-                    print("⚠ モーダル非表示待機がタイムアウトしましたが既に閉じています。")
+                    logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
                     akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
                     raise Exception(
                         f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD}, akamai={akamai_status})"
                     ) from modal_timeout
             self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 
-            # 画像アップロード後のページ安定化待機
-            print(f"  - ページ安定化待機中...")
-            try:
-                self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
-            except PlaywrightTimeoutError as load_timeout:
-                akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
-                raise Exception(
-                    f"画像アップロード後のページが安定しません (timeout={self.TIMEOUT_LOAD}, akamai={akamai_status})"
-                ) from load_timeout
+            # 画像アップロード後のプレビュー確認（networkidleを使わずDOMシグナルで判定）
+            logger.info("アップロード結果を確認中...")
+            self._wait_for_upload_completion(
+                upload_area_selector=form_config["image"]["upload_area"],
+                modal_selector=form_config["image"]["modal_container"],
+                timeout_ms=self.TIMEOUT_LOAD,
+            )
             self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
 
             # エラーダイアログの確認と処理
@@ -779,7 +1065,7 @@ class SalonBoardStylePoster:
                 if error_dialog.count() > 0 and error_dialog.first.is_visible(timeout=1000):
                     # エラーメッセージを取得
                     error_message = self.page.locator(f"{error_dialog_selector} .message").inner_text()
-                    print(f"  - エラーダイアログ検出: {error_message}")
+                    logger.warning("エラーダイアログ検出: %s", error_message)
                     # OKボタンをクリックして閉じる
                     ok_button = self.page.locator(f"{error_dialog_selector} a.accept")
                     ok_button.click(timeout=5000)
@@ -791,25 +1077,25 @@ class SalonBoardStylePoster:
                 # ダイアログが存在しない場合は無視
                 pass
 
-            print("✓ 画像アップロード完了")
+            logger.info("画像アップロード完了")
         except Exception as e:
             raise StylePostError(f"画像アップロードに失敗しました: {e}", self._take_screenshot("error-image-upload"))
 
         # スタイリスト名選択
         try:
-            print("スタイリスト名選択中...")
+            logger.info("スタイリスト名選択中...")
             stylist_select = self.page.locator(form_config["stylist_name_select"])
             stylist_select.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause()
             stylist_select.select_option(label=style_data["スタイリスト名"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=750, jitter_ms=240, minimum_ms=400)
-            print("✓ スタイリスト名選択完了")
+            logger.info("スタイリスト名選択完了")
         except Exception as e:
             raise StylePostError(f"スタイリスト名の選択に失敗しました（スタイリスト: {style_data.get('スタイリスト名', '不明')}）: {e}", self._take_screenshot("error-stylist-select"))
 
         # テキスト入力
         try:
-            print("テキスト入力中...")
+            logger.info("テキスト入力中...")
             self._human_pause()
             self.page.locator(form_config["stylist_comment_textarea"]).fill(style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
@@ -817,13 +1103,13 @@ class SalonBoardStylePoster:
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
             self.page.locator(form_config["menu_detail_textarea"]).fill(style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=750, jitter_ms=230, minimum_ms=400)
-            print("✓ テキスト入力完了")
+            logger.info("テキスト入力完了")
         except Exception as e:
             raise StylePostError(f"テキスト入力に失敗しました: {e}", self._take_screenshot("error-text-input"))
 
         # カテゴリ/長さ選択
         try:
-            print("カテゴリ/長さ選択中...")
+            logger.info("カテゴリ/長さ選択中...")
             category = style_data["カテゴリ"]
             if category == "レディース":
                 self._human_pause()
@@ -840,13 +1126,13 @@ class SalonBoardStylePoster:
                     label=style_data["長さ"], timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
             self._human_pause(base_ms=750, jitter_ms=220, minimum_ms=400)
-            print("✓ カテゴリ/長さ選択完了")
+            logger.info("カテゴリ/長さ選択完了")
         except Exception as e:
             raise StylePostError(f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {style_data.get('長さ', '不明')}）: {e}", self._take_screenshot("error-category-length"))
 
         # クーポン選択
         try:
-            print("クーポン選択中...")
+            logger.info("クーポン選択中...")
             coupon_config = form_config["coupon"]
             self._human_pause()
             self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
@@ -861,13 +1147,13 @@ class SalonBoardStylePoster:
             self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
             self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
-            print("✓ クーポン選択完了")
+            logger.info("クーポン選択完了")
         except Exception as e:
             raise StylePostError(f"クーポンの選択に失敗しました（クーポン: {style_data.get('クーポン名', '不明')}）: {e}", self._take_screenshot("error-coupon-select"))
 
         # ハッシュタグ入力
         try:
-            print("ハッシュタグ入力中...")
+            logger.info("ハッシュタグ入力中...")
             hashtag_config = form_config["hashtag"]
             hashtags = style_data["ハッシュタグ"].split(",")
 
@@ -877,21 +1163,21 @@ class SalonBoardStylePoster:
                     self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
                     self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
                     self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)  # 反映待機
-            print("✓ ハッシュタグ入力完了")
+            logger.info("ハッシュタグ入力完了")
         except Exception as e:
             raise StylePostError(f"ハッシュタグの入力に失敗しました: {e}", self._take_screenshot("error-hashtag"))
 
         # 登録
         try:
-            print("登録ボタンクリック中...")
+            logger.info("登録ボタンクリック中...")
             self._click_and_wait(form_config["register_button"])
             self.page.wait_for_selector(form_config["complete_text"], timeout=self.TIMEOUT_LOAD)
-            print("✓ 登録完了")
+            logger.info("登録完了")
         except Exception as e:
             raise StylePostError(f"スタイル登録の完了に失敗しました: {e}", self._take_screenshot("error-register"))
 
         # スタイル一覧へ戻る
-        print("スタイル一覧へ戻る...")
+        logger.info("スタイル一覧へ戻る...")
         back_to_list_button = form_config["back_to_list_button"]
         list_ready_selector = form_config["new_style_button"]
         back_navigation_timeout = 10000  # 明示的に10秒に制限
@@ -900,16 +1186,16 @@ class SalonBoardStylePoster:
         try:
             self._click_and_wait(back_to_list_button, load_timeout=back_navigation_timeout)
             self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
-            print(f"✓ スタイル登録完了: {style_data['スタイル名']}")
+            logger.info("スタイル登録完了: %s", style_data["スタイル名"])
         except Exception as navigation_error:
             back_navigation_error = navigation_error
-            print(f"⚠ 通常の戻る操作に失敗（{navigation_error}）。直接URLで一覧に戻ります。")
+            logger.warning("通常の戻る操作に失敗（%s）。直接URLで一覧に戻ります。", navigation_error)
 
         if back_navigation_error:
             try:
                 self.step_navigate_to_style_list_page(use_direct_url=True)
                 self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
-                print(f"✓ 直接URLでスタイル一覧に戻りました: {style_data['スタイル名']}")
+                logger.info("直接URLでスタイル一覧に戻りました: %s", style_data["スタイル名"])
             except Exception as direct_navigation_error:
                 combined_message = (
                     f"スタイル一覧への戻りに失敗しました: {back_navigation_error}; "
@@ -1018,7 +1304,7 @@ class SalonBoardStylePoster:
             )
 
             # データ読み込み
-            print(f"データファイル読み込み: {data_filepath}")
+            logger.info("データファイル読み込み: %s", data_filepath)
             if data_filepath.endswith(".csv"):
                 df = pd.read_csv(data_filepath)
             elif data_filepath.endswith(".xlsx"):
@@ -1026,7 +1312,8 @@ class SalonBoardStylePoster:
             else:
                 raise Exception("サポートされていないファイル形式です")
 
-            print(f"✓ {len(df)}件のスタイルデータを読み込みました")
+            logger.info("%s件のスタイルデータを読み込みました", len(df))
+            logger.debug("データカラム: %s", list(df.columns))
             expected_total = len(df)
             emit_progress(
                 0,
@@ -1072,7 +1359,7 @@ class SalonBoardStylePoster:
                 )
 
                 try:
-                    print(f"\n--- スタイル {index + 1}/{len(df)} 処理中 ---")
+                    logger.info("--- スタイル %s/%s 処理中 ---", index + 1, len(df))
 
                     # 画像パス生成
                     image_filename = row["画像名"]
@@ -1080,6 +1367,7 @@ class SalonBoardStylePoster:
 
                     if not image_path.exists():
                         raise Exception(f"画像ファイルが見つかりません: {image_filename}")
+                    logger.debug("画像ファイル確認: %s (exists=%s, size=%s bytes)", image_path, image_path.exists(), image_path.stat().st_size if image_path.exists() else "n/a")
 
                     style_dict = row.to_dict()
                     style_dict["_row_number"] = index + 2  # CSVヘッダー分を考慮
@@ -1119,11 +1407,11 @@ class SalonBoardStylePoster:
                                     "total": expected_total,
                                     "style_name": style_name
                                 },
-                                error=event
-                            )
+                        error=event
+                    )
 
                 except Exception as e:
-                    print(f"✗ エラー発生: {e}")
+                    logger.error("エラー発生: %s", e)
 
                     # スクリーンショット取得（StylePostErrorの場合は既に含まれている）
                     if isinstance(e, StylePostError) and e.screenshot_path:
@@ -1158,7 +1446,7 @@ class SalonBoardStylePoster:
                         error=error_payload
                     )
 
-            print("\n✓ 全スタイルの処理が完了しました")
+            logger.info("全スタイルの処理が完了しました")
             emit_progress(
                 expected_total,
                 {
@@ -1172,7 +1460,7 @@ class SalonBoardStylePoster:
             )
 
         except Exception as e:
-            print(f"\n✗ 致命的エラー: {e}")
+            logger.exception("致命的エラー: %s", e)
             self._take_screenshot("fatal-error")
             raise
 

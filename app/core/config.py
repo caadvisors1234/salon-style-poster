@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # CORS設定
     BACKEND_CORS_ORIGINS: List[str] = []
 
+    # ログ設定
+    LOG_DIR: str = "logs"
+    LOG_LEVEL: str | None = None  # 明示指定がない場合は DEBUG フラグに従う
+    LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB
+    LOG_BACKUP_COUNT: int = 5
+
     # スクリーンショット保全ポリシー
     SCREENSHOT_DIR: str = "app/static/screenshots"
     SCREENSHOT_RETENTION_DAYS: int = 30

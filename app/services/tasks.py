@@ -120,7 +120,7 @@ def process_style_post_task(
         return task_record
 
     try:
-        print(f"=== タスク開始: {task_id} ===")
+        logger.info("=== タスク開始: %s ===", task_id)
 
         # SALON BOARD設定取得
         setting = crud_setting.get_setting_by_id(db, setting_id)
@@ -203,10 +203,10 @@ def process_style_post_task(
             current_index=final_snapshot.completed_items if final_snapshot else total_items,
             total=final_snapshot.total_items if final_snapshot else total_items
         )
-        print(f"=== タスク完了: {task_id} ===")
+        logger.info("=== タスク完了: %s ===", task_id)
 
     except TaskCancelledError as cancel_error:
-        print(f"=== タスクキャンセル: {task_id} - {cancel_error} ===")
+        logger.info("=== タスクキャンセル: %s - %s ===", task_id, cancel_error)
         crud_task.update_task_status(db, task_uuid, "FAILURE")
         snapshot = crud_task.get_task_by_id(db, task_uuid)
         record_detail(
@@ -220,11 +220,11 @@ def process_style_post_task(
         raise
 
     except Exception as e:
-        print(f"=== タスクエラー: {task_id} - {e} ===")
+        logger.exception("=== タスクエラー: %s ===", task_id)
 
         # 中止リクエストによる例外かチェック
         if "タスクが中止されました" in str(e) or "cancelled" in str(e).lower():
-            print("タスクが正常に中止されました")
+            logger.info("タスクが正常に中止されました")
             # 中止ステータスに更新（CANCELLING → FAILURE）
             crud_task.update_task_status(db, task_uuid, "FAILURE")
             snapshot = crud_task.get_task_by_id(db, task_uuid)
@@ -244,7 +244,7 @@ def process_style_post_task(
             screenshot_path = ""
             if isinstance(e, StylePostError):
                 screenshot_path = e.screenshot_path
-                print(f"スクリーンショット: {screenshot_path}")
+                logger.warning("スクリーンショット: %s", screenshot_path)
 
             # エラー情報記録（致命的エラー）
             crud_task.add_task_error(db, task_uuid, {
@@ -272,13 +272,13 @@ def process_style_post_task(
         try:
             if os.path.exists(style_data_filepath):
                 os.remove(style_data_filepath)
-                print(f"✓ スタイルデータファイル削除: {style_data_filepath}")
+                logger.info("スタイルデータファイル削除: %s", style_data_filepath)
 
             if os.path.exists(image_dir):
                 shutil.rmtree(image_dir)
-                print(f"✓ 画像ディレクトリ削除: {image_dir}")
+                logger.info("画像ディレクトリ削除: %s", image_dir)
         except Exception as cleanup_error:
-            print(f"✗ クリーンアップエラー: {cleanup_error}")
+            logger.warning("クリーンアップエラー: %s", cleanup_error)
 
 
 def cleanup_screenshots(

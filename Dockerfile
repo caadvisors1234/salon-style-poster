@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y \
     libfreetype6 \
     libfontconfig1 \
     libdbus-1-3 \
+    fonts-noto-cjk \
+    fonts-ipafont \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Python依存関係をコピーしてインストール

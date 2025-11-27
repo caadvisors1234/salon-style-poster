@@ -1,6 +1,8 @@
 """
 FastAPIアプリケーションのエントリーポイント
 """
+import logging
+
 from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +13,15 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
+from app.core.logging_config import setup_logging
 from app.db.session import engine
 from app.api.v1.api import api_router
 from app.core.security import get_current_user
 from app.schemas.user import User
+
+# ロギング初期化
+setup_logging("web")
+logger = logging.getLogger(__name__)
 
 # レート制限初期化
 limiter = Limiter(key_func=get_remote_address)
@@ -55,21 +62,21 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     """アプリケーション起動時の処理"""
-    print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info("Starting %s v%s", settings.APP_NAME, settings.APP_VERSION)
 
     # データベース接続確認
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        print("✓ Database connection successful")
+        logger.info("Database connection successful")
     except Exception as e:
-        print(f"✗ Database connection failed: {e}")
+        logger.exception("Database connection failed: %s", e)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """アプリケーション終了時の処理"""
-    print(f"Shutting down {settings.APP_NAME}")
+    logger.info("Shutting down %s", settings.APP_NAME)
 
 
 @app.get("/")

@@ -25,6 +25,7 @@ celery_app.conf.update(
     task_soft_time_limit=3300,  # 55分ソフトタイムアウト
     worker_prefetch_multiplier=1,  # 一度に1タスクのみ取得
     worker_max_tasks_per_child=10,  # ワーカープロセス再起動（メモリリーク対策）
+    worker_hijack_root_logger=False,  # 既存ロガー設定を維持
 )
 
 # タスク自動検出
