@@ -127,12 +127,73 @@ class SalonBoardStylePoster:
             }
         )
 
-        # WebDriverフラグやデバイス情報を人間と揃える
+        # 指紋をデスクトップChromeに揃える
         self.context.add_init_script(
             """
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             Object.defineProperty(navigator, 'platform', {get: () => 'Linux x86_64'});
             Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+            Object.defineProperty(navigator, 'language', {get: () => 'ja-JP'});
+            Object.defineProperty(navigator, 'languages', {get: () => ['ja-JP', 'ja', 'en-US', 'en']});
+            Object.defineProperty(navigator, 'vendor', {get: () => 'Google Inc.'});
+            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 0});
+
+            // PluginArray/MimeTypeArray を簡易実装で安定化
+            const buildPlugin = (name) => ({ name, filename: name.toLowerCase().replace(/\\s+/g, '') + '.dll', description: name });
+            const plugins = [
+              buildPlugin('Chrome PDF Viewer'),
+              buildPlugin('Chromium PDF Viewer'),
+              buildPlugin('Microsoft Edge PDF Viewer'),
+              buildPlugin('PDF Viewer'),
+            ];
+            const mimeTypes = [
+              { type: 'application/pdf', suffixes: 'pdf', description: 'PDF', enabledPlugin: plugins[0] },
+            ];
+            Object.defineProperty(navigator, 'plugins', { get: () => plugins });
+            Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypes });
+
+            // permissions 振る舞いを安定化（notifications は denied に固定）
+            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+            if (originalQuery) {
+              window.navigator.permissions.query = (parameters) => {
+                if (parameters && parameters.name === 'notifications') {
+                  return Promise.resolve({ state: 'denied' });
+                }
+                return originalQuery(parameters);
+              };
+            }
+
+            // WebGL のベンダ/レンダラを固定
+            const patchWebGL = () => {
+              const proto = WebGLRenderingContext && WebGLRenderingContext.prototype;
+              if (!proto || proto.__patched) return;
+              const origGetParameter = proto.getParameter;
+              proto.getParameter = function (pname) {
+                if (pname === 0x1F00) { // RENDERER
+                  return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620, OpenGL 4.6)';
+                }
+                if (pname === 0x1F01) { // VENDOR
+                  return 'Google Inc. (Intel)';
+                }
+                return origGetParameter.apply(this, [pname]);
+              };
+              proto.__patched = true;
+            };
+
+            // Canvas を安定化（余計なノイズを入れずに値を固定化）
+            const patchCanvas = () => {
+              const proto = HTMLCanvasElement && HTMLCanvasElement.prototype;
+              if (!proto || proto.__patched) return;
+              const origToDataURL = proto.toDataURL;
+              proto.toDataURL = function (...args) {
+                return origToDataURL.apply(this, args);
+              };
+              proto.__patched = true;
+            };
+
+            patchWebGL();
+            patchCanvas();
             """
         )
 
@@ -542,6 +603,71 @@ class SalonBoardStylePoster:
 
         return False
 
+    def _wait_for_upload_completion(
+        self,
+        upload_area_selector: str,
+        modal_selector: str,
+        timeout_ms: int = 30000
+    ) -> None:
+        """
+        画像アップロード完了をDOMシグナルで確認する
+        """
+        if not self.page:
+            raise Exception("ページが初期化されていません")
+
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        poll_ms = 600
+        last_log = 0.0
+
+        while time.monotonic() < deadline:
+            modal_visible = False
+            try:
+                modal = self.page.locator(modal_selector)
+                if modal.count() > 0:
+                    modal_visible = modal.first.is_visible(timeout=500)
+            except Exception:
+                modal_visible = False
+
+            preview_ok = False
+            src_text = ""
+            bg_image = ""
+            try:
+                upload_area = self.page.locator(upload_area_selector)
+                if upload_area.count() > 0:
+                    src_text = upload_area.first.get_attribute("src") or ""
+                    try:
+                        bg_image = upload_area.first.evaluate(
+                            "el => (window.getComputedStyle(el).backgroundImage || '')"
+                        ) or ""
+                    except Exception:
+                        bg_image = ""
+                    if src_text and "noimage" not in src_text.lower():
+                        preview_ok = True
+                    if "url(" in bg_image.lower() and "noimage" not in bg_image.lower():
+                        preview_ok = True
+            except Exception:
+                pass
+
+            if not modal_visible and preview_ok:
+                logger.info("画像アップロード後のプレビューを確認しました")
+                return
+
+            now = time.monotonic()
+            if now - last_log > 2.5:
+                abck = self._summarize_abck_value(self._get_cookie_value("_abck"))
+                logger.debug(
+                    "アップロード完了待機中: modal_visible=%s src=%s bg=%s _abck=%s",
+                    modal_visible,
+                    src_text[:120],
+                    bg_image[:120],
+                    abck,
+                )
+                last_log = now
+
+            self.page.wait_for_timeout(poll_ms)
+
+        raise Exception(f"画像アップロード完了を確認できませんでした (timeout={timeout_ms}ms)")
+
     def _click_and_wait(
         self,
         selector: str,
@@ -923,15 +1049,13 @@ class SalonBoardStylePoster:
                     ) from modal_timeout
             self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 
-            # 画像アップロード後のページ安定化待機
-            logger.info("ページ安定化待機中...")
-            try:
-                self.page.wait_for_load_state("networkidle", timeout=self.TIMEOUT_LOAD)
-            except PlaywrightTimeoutError as load_timeout:
-                akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
-                raise Exception(
-                    f"画像アップロード後のページが安定しません (timeout={self.TIMEOUT_LOAD}, akamai={akamai_status})"
-                ) from load_timeout
+            # 画像アップロード後のプレビュー確認（networkidleを使わずDOMシグナルで判定）
+            logger.info("アップロード結果を確認中...")
+            self._wait_for_upload_completion(
+                upload_area_selector=form_config["image"]["upload_area"],
+                modal_selector=form_config["image"]["modal_container"],
+                timeout_ms=self.TIMEOUT_LOAD,
+            )
             self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
 
             # エラーダイアログの確認と処理
