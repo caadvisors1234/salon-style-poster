@@ -1,0 +1,12 @@
+services:
+  web:
+    ports:
+      - "18003:8000"
+
+  db:
+    ports:
+      - "15434:5432"
+
+  redis:
+    ports:
+      - "16381:6379"
