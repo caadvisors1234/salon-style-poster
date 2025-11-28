@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -38,6 +39,9 @@ app = FastAPI(
 # レート制限を有効化
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# プロキシ経由の HTTPS 判定を正しく行う
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # CORS設定
 if settings.BACKEND_CORS_ORIGINS:
