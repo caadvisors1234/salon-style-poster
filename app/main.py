@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -119,3 +120,9 @@ async def unpublish_page(request: Request):
 async def health_check():
     """ヘルスチェックエンドポイント"""
     return {"status": "healthy"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """ブラウザがデフォルトで参照する favicon パスに対応"""
+    return FileResponse("app/static/favicon.ico")
