@@ -70,7 +70,7 @@ SALON BOARD Style Posterは、美容サロン向けのスタイル投稿自動�
 
 - **Docker**: コンテナ化
 - **Docker Compose**: マルチコンテナ管理
-- **Nginx**: リバースプロキシ・静的ファイル配信
+- **Nginx Proxy Manager (外部)**: リバースプロキシ・SSL終端
 
 ---
 
@@ -83,16 +83,15 @@ SALON BOARD Style Posterは、美容サロン向けのスタイル投稿自動�
                            │ HTTPS (443)
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                      Nginx Container                          │
+│                  Nginx Proxy Manager (外部)                   │
 │  - リバースプロキシ                                           │
 │  - 静的ファイル配信 (/static/*)                              │
 │  - SSL/TLS終端                                                │
-└───────────┬──────────────────────────────────┬───────────────┘
-            │                                  │
-            │ :8000                            │ Static Files
-            ▼                                  │
-┌──────────────────────────────────┐           │
-│      Web Container (FastAPI)     │◄──────────┘
+└───────────┬──────────────────────────────────┘
+            │ :80/443
+            ▼
+┌──────────────────────────────────┐
+│      Web Container (FastAPI)     │
 │  - REST API                      │
 │  - HTML レンダリング             │
 │  - 認証・認可                    │
@@ -130,24 +129,7 @@ SALON BOARD Style Posterは、美容サロン向けのスタイル投稿自動�
 
 ## コンポーネント構成
 
-### 1. Nginx Container
-
-**役割**: リバースプロキシ、静的ファイル配信、SSL/TLS終端
-
-**設定**:
-```nginx
-location / {
-    proxy_pass http://web:8000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-
-location /static/ {
-    alias /app/app/static/;
-}
-```
-
-### 2. Web Container (FastAPI)
+### 1. Web Container (FastAPI)
 
 **役割**: REST API提供、HTML描画、認証・認可
 
@@ -177,7 +159,7 @@ app/
 └── selectors.yaml        # Playwrightセレクタ設定
 ```
 
-### 3. Worker Container (Celery)
+### 2. Worker Container (Celery)
 
 **役割**: バックグラウンドタスク実行、Playwright自動化
 
@@ -200,7 +182,7 @@ worker:
   platform: linux/amd64  # ARM64環境での必須設定
 ```
 
-### 4. Redis Container
+### 3. Redis Container
 
 **役割**: タスクキュー、結果バックエンド
 
@@ -208,7 +190,7 @@ worker:
 - Celeryのタスクキュー（broker）
 - タスク結果の一時保存（backend）
 
-### 5. PostgreSQL Container
+### 4. PostgreSQL Container
 
 **役割**: 永続データストレージ
 
@@ -379,7 +361,7 @@ decrypted = f.decrypt(encrypted).decode()
 
 ### 3. セキュリティヘッダー
 
-Nginxで以下のヘッダーを設定：
+リバースプロキシ（Nginx Proxy Manager など）で以下のヘッダーを設定：
 ```nginx
 add_header X-Frame-Options "SAMEORIGIN" always;
 add_header X-Content-Type-Options "nosniff" always;
@@ -417,13 +399,17 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 ### 2. ビルド＆起動
 
 ```bash
-# イメージビルド
-docker-compose build
+# 共有ネットワーク作成（未作成の場合のみ）
+bash scripts/create_app_network.sh
 
-# コンテナ起動
-docker-compose up -d
+# イメージビルド・起動
+docker-compose up -d --build
 
-# ログ確認
+# ローカル開発でホストからアクセスする場合（任意）
+cp docker-compose.override.example docker-compose.override.yml
+docker-compose up -d --build
+
+# ログ確認（必要に応じて）
 docker-compose logs -f web
 docker-compose logs -f worker
 
@@ -578,7 +564,7 @@ docker-compose exec redis redis-cli LLEN celery
 
 - **Web**: `docker-compose logs web`
 - **Worker**: `docker-compose logs worker`
-- **Nginx**: `docker-compose logs nginx`
+- **Reverse Proxy (NPM)**: NPM のUI/ホストログを参照
 
 ### 重要なログメッセージ
 

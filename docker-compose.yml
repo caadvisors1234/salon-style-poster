@@ -9,29 +9,25 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-salon_board_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-salon_board_user}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - salon_board_network
+      - internal
 
   # Redis
   redis:
     image: redis:7-alpine
     container_name: salon_board_redis
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - salon_board_network
+      - internal
 
   # FastAPI Webアプリケーション
   web:
@@ -40,12 +36,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: salon_board_web
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app
       - ./logs:/app/logs
-    ports:
-      - "8000:8000"
     env_file:
       - .env
     depends_on:
@@ -53,8 +47,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    expose:
+      - "8000"
     networks:
-      - salon_board_network
+      internal:
+      app-network:
+        aliases:
+          - style-poster-web
 
   # Celery Worker
   worker:
@@ -74,8 +73,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    shm_size: "2gb"
     networks:
-      - salon_board_network
+      - internal
 
   # Celery Beat
   beat:
@@ -94,24 +94,14 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - salon_board_network
-
-  # Nginx (リバースプロキシ)
-  nginx:
-    image: nginx:alpine
-    container_name: salon_board_nginx
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - web
-    networks:
-      - salon_board_network
+      - internal
 
 networks:
-  salon_board_network:
+  internal:
     driver: bridge
+  app-network:
+    name: app-network
+    external: true
 
 volumes:
   postgres_data:

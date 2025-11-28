@@ -61,6 +61,13 @@ print(key.decode())
 以下のコマンドを実行して、Dockerイメージをビルドし、バックグラウンドでコンテナを起動します。
 
 ```bash
+# Nginx Proxy Manager と共有するネットワークを事前に作成（一度だけでOK）
+# 既に存在してラベル不一致エラーが出る場合は `docker network rm app-network` 後に再作成してください。
+bash scripts/create_app_network.sh
+
+# ローカル開発でホストからアクセスしたい場合（ポート開放用オーバーライドを作成）
+cp docker-compose.override.example docker-compose.override.yml
+
 docker-compose up --build -d
 ```
 
@@ -82,9 +89,12 @@ docker-compose exec web python -m scripts.create_admin --email admin@example.com
 
 ### ステップ5: アプリケーションへのアクセス
 
-ブラウザで以下のURLにアクセスします。
-
-- **URL**: `http://localhost:8080`
+- 本番（Nginx Proxy Manager 経由）  
+  - Proxy Host: `salon-style-poster.ai-beauty.tokyo` → `http://style-poster-web:8000`（同じ `app-network` 上）  
+  - SSL を有効化してアクセスしてください。
+- ローカル開発（`docker-compose.override.yml` でポート公開、デフォルトで自動読み込み）  
+  - **URL**: `http://localhost:18003`
+  - ポートを変更したい場合は `docker-compose.override.example` を編集してからコピーしてください。
 
 ステップ4で作成した管理者アカウント情報でログインしてください。
 
@@ -107,7 +117,7 @@ docker-compose exec web python -m scripts.create_admin --email admin@example.com
 ├── tests/                  # APIテストコード
 ├── .env.example            # 環境変数テンプレート
 ├── alembic.ini             # Alembic設定ファイル
-├── docker-compose.yml      # Docker Compose設定ファイル
+├── docker-compose.yml      # Docker Compose設定ファイル（本番: ポート公開なし）
 ├── Dockerfile              # Web/Worker共通のDockerfile
 └── README.md               # このファイル
 ```
