@@ -8,6 +8,8 @@ WORKDIR /app
 # Playwright Firefox依存関係を含む
 RUN apt-get update && apt-get install -y \
     gcc \
+    xvfb \
+    xauth \
     postgresql-client \
     libx11-6 \
     libx11-xcb1 \

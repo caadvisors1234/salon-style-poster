@@ -16,11 +16,12 @@ from playwright.sync_api import (
     Browser,
     Playwright,
     BrowserContext,
-    Response,
     Request,
+    Response,
     TimeoutError as PlaywrightTimeoutError,
 )
 from playwright_stealth import stealth_sync
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -86,15 +87,14 @@ class SalonBoardStylePoster:
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-extensions",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-site-isolation-trials",
-                "--ignore-certificate-errors",
-                "--disable-features=PrivacySandboxSettings3",
-                "--disable-features=AutomationControlled",
-                "--disable-dev-shm-usage",
                 "--no-sandbox",
+                "--disable-dev-shm-usage",
             ],
+            "ignore_default_args": ["--enable-automation"],
         }
+        
+        if not self.headless:
+            launch_kwargs["args"].append("--start-maximized")
 
         try:
             self.browser = self.playwright.chromium.launch(channel="chrome", **launch_kwargs)
@@ -103,105 +103,28 @@ class SalonBoardStylePoster:
             logger.warning("Chromeチャンネル起動に失敗: %s。Playwright同梱Chromiumで再試行します。", channel_error)
             self.browser = self.playwright.chromium.launch(**launch_kwargs)
 
-        # モバイル実機に近いブラウザコンテキスト作成（自動化検知対策）
-        self.context = self.browser.new_context(
-            viewport={"width": 1366, "height": 768},  # 一般的なデスクトップ解像度
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            device_scale_factor=1.0,
-            is_mobile=False,
-            has_touch=False,
-            locale="ja-JP",
-            timezone_id="Asia/Tokyo"
-        )
-        self.context.set_extra_http_headers(
-            {
-                "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Upgrade-Insecure-Requests": "1",
-                "DNT": "1",
-                "Sec-CH-UA": "\"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\", \"Not:A-Brand\";v=\"99\"",
-                "Sec-CH-UA-Mobile": "?0",
-                "Sec-CH-UA-Platform": "\"Linux\"",
-            }
-        )
+        # コンテキスト作成
+        context_kwargs = {
+            "viewport": {"width": 1280, "height": 960},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "locale": "ja-JP",
+            "timezone_id": "Asia/Tokyo"
+        }
+        if not self.headless:
+            context_kwargs["viewport"] = None # ビューポートを無効化してウィンドウサイズに合わせる
 
-        # 指紋をデスクトップChromeに揃える
+        self.context = self.browser.new_context(**context_kwargs)
+
+        # 指紋対策（最小限）
         self.context.add_init_script(
             """
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Linux x86_64'});
-            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
-            Object.defineProperty(navigator, 'language', {get: () => 'ja-JP'});
-            Object.defineProperty(navigator, 'languages', {get: () => ['ja-JP', 'ja', 'en-US', 'en']});
-            Object.defineProperty(navigator, 'vendor', {get: () => 'Google Inc.'});
-            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 0});
-
-            // PluginArray/MimeTypeArray を簡易実装で安定化
-            const buildPlugin = (name) => ({ name, filename: name.toLowerCase().replace(/\\s+/g, '') + '.dll', description: name });
-            const plugins = [
-              buildPlugin('Chrome PDF Viewer'),
-              buildPlugin('Chromium PDF Viewer'),
-              buildPlugin('Microsoft Edge PDF Viewer'),
-              buildPlugin('PDF Viewer'),
-            ];
-            const mimeTypes = [
-              { type: 'application/pdf', suffixes: 'pdf', description: 'PDF', enabledPlugin: plugins[0] },
-            ];
-            Object.defineProperty(navigator, 'plugins', { get: () => plugins });
-            Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypes });
-
-            // permissions 振る舞いを安定化（notifications は denied に固定）
-            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
-            if (originalQuery) {
-              window.navigator.permissions.query = (parameters) => {
-                if (parameters && parameters.name === 'notifications') {
-                  return Promise.resolve({ state: 'denied' });
-                }
-                return originalQuery(parameters);
-              };
-            }
-
-            // WebGL のベンダ/レンダラを固定
-            const patchWebGL = () => {
-              const proto = WebGLRenderingContext && WebGLRenderingContext.prototype;
-              if (!proto || proto.__patched) return;
-              const origGetParameter = proto.getParameter;
-              proto.getParameter = function (pname) {
-                if (pname === 0x1F00) { // RENDERER
-                  return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620, OpenGL 4.6)';
-                }
-                if (pname === 0x1F01) { // VENDOR
-                  return 'Google Inc. (Intel)';
-                }
-                return origGetParameter.apply(this, [pname]);
-              };
-              proto.__patched = true;
-            };
-
-            // Canvas を安定化（余計なノイズを入れずに値を固定化）
-            const patchCanvas = () => {
-              const proto = HTMLCanvasElement && HTMLCanvasElement.prototype;
-              if (!proto || proto.__patched) return;
-              const origToDataURL = proto.toDataURL;
-              proto.toDataURL = function (...args) {
-                return origToDataURL.apply(this, args);
-              };
-              proto.__patched = true;
-            };
-
-            patchWebGL();
-            patchCanvas();
             """
         )
 
         # 新しいページ作成
         self.page = self.context.new_page()
         self.page.on("requestfailed", self._handle_request_failed)
-        self.page.on("response", self._handle_response)
-        self.page.on("request", self._handle_request)
         stealth_sync(self.page)
 
         # デフォルトタイムアウト設定（3分）
@@ -246,7 +169,10 @@ class SalonBoardStylePoster:
 
     def _handle_request_failed(self, request: Request):
         """HTTPリクエスト失敗のモニタリング"""
-        failure_text = getattr(request, "failure", None)
+        # request.failure がメソッドの場合とプロパティの場合を考慮
+        failure_attr = getattr(request, "failure", None)
+        failure_text = failure_attr() if callable(failure_attr) else failure_attr
+
         if not failure_text:
             return
         url = request.url
@@ -254,146 +180,6 @@ class SalonBoardStylePoster:
             message = f"{url} -> {failure_text}"
             self._last_failed_upload_reason = message
             logger.warning("リクエスト失敗検出: %s", message)
-
-    def _handle_request(self, request: Request):
-        """Akamai関連リクエストの観測"""
-        url = request.url
-        if any(token in url for token in ("bm-verify", "_abck", "akamai")):
-            logger.info("Akamaiリクエスト観測: %s (%s)", url, request.method)
-
-    def _handle_response(self, response: Response):
-        """Akamai関連レスポンスの観測"""
-        url = response.url
-        if any(token in url for token in ("bm-verify", "_abck", "akamai")):
-            try:
-                body_hint = ""
-                if response.status >= 400:
-                    body_hint = f", body={response.text()[:120]}"
-                logger.info("Akamaiレスポンス観測: %s (status=%s%s)", url, response.status, body_hint)
-            except Exception:
-                logger.info("Akamaiレスポンス観測: %s (status=%s)", url, response.status)
-
-    def _get_cookie_value(self, name: str) -> Optional[str]:
-        """ブラウザコンテキストから特定Cookie値を取得"""
-        if not self.context:
-            return None
-        try:
-            cookies = self.context.cookies()
-        except Exception as e:
-            logger.warning("Cookie取得に失敗しました (%s): %s", name, e)
-            return None
-        for cookie in cookies:
-            if cookie.get("name") == name:
-                return cookie.get("value")
-        return None
-
-    def _summarize_abck_value(self, value: Optional[str]) -> str:
-        """_abckクッキーの状態を簡易表現に整形"""
-        if value is None:
-            return "not-set"
-        if "~0~" in value:
-            return "~0~ (cleared)"
-        if "~-1~" in value:
-            return "~-1~ (pending)"
-        if "~1~" in value:
-            return "~1~ (grace)"
-        suffix = value[-8:] if len(value) > 8 else value
-        return f"{suffix} (raw)"
-
-    def _stimulate_akamai_sensor(self):
-        """ユーザー操作に近いイベントでAkamaiセンサーを刺激"""
-        if not self.page:
-            return
-
-        viewport = self.page.viewport_size or {"width": 412, "height": 915}
-        width = viewport.get("width", 412)
-        height = viewport.get("height", 915)
-
-        # タッチ・スクロール・ジャイロ等のイベントを順番に送る
-        for _ in range(2):
-            x = self._random.randint(int(width * 0.2), int(width * 0.8))
-            y = self._random.randint(int(height * 0.2), int(height * 0.8))
-            try:
-                self.page.touchscreen.tap(x, y)
-            except Exception:
-                pass
-            try:
-                self.page.mouse.move(x, y, steps=5)
-                self.page.mouse.wheel(0, self._random.randint(200, 600))
-            except Exception:
-                pass
-            self.page.wait_for_timeout(200)
-
-        try:
-            self.page.evaluate(
-                """
-                () => {
-                    window.dispatchEvent(new Event('deviceorientation'));
-                    window.dispatchEvent(new Event('devicemotion'));
-                    document.body && document.body.dispatchEvent(new Event('touchstart'));
-                }
-                """
-            )
-        except Exception:
-            pass
-
-        self._human_pause(base_ms=900, jitter_ms=260, minimum_ms=500)
-
-    def _warmup_akamai_endpoints(self):
-        """Akamaiクッキー更新を促すためのウォームアップリクエスト"""
-        if not self.context:
-            return
-        target_url = "https://salonboard.com/CNB/imgreg/imgUpload/"
-        try:
-            response = self.context.request.get(target_url)
-            logger.info("Akamaiウォームアップリクエスト: %s (status=%s)", target_url, response.status)
-        except Exception as warmup_error:
-            logger.warning("Akamaiウォームアップリクエスト失敗: %s", warmup_error)
-
-    def _ensure_akamai_readiness(self, attempts: int = 3, timeout_ms: int = 15000) -> bool:
-        """Akamaiセッションが安定するまで刺激と再確認を行う"""
-        for attempt in range(1, attempts + 1):
-            if self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False):
-                return True
-            logger.info("Akamaiセンサーが未完了のため刺激 #%s", attempt)
-            self._stimulate_akamai_sensor()
-            self._warmup_akamai_endpoints()
-        ready = self._wait_for_akamai_clearance(timeout_ms=timeout_ms, strict=False)
-        if ready:
-            return True
-        logger.warning("Akamaiセッションが安定しないまま次の処理へ進みます")
-        return False
-
-    def _wait_for_akamai_clearance(self, timeout_ms: int = 15000, *, strict: bool = True) -> bool:
-        """
-        Akamai Bot Managerの検証完了を待機
-
-        _abck Cookieの末尾が ~0~ になるまで待機し、未達なら例外を投げる
-        """
-        if not self.page:
-            return True
-
-        deadline = time.monotonic() + (timeout_ms / 1000.0)
-        last_summary: Optional[str] = None
-        while time.monotonic() < deadline:
-            cookie_value = self._get_cookie_value("_abck")
-            summary = self._summarize_abck_value(cookie_value)
-            if summary != last_summary:
-                logger.info("_abck cookie 状態: %s", summary)
-                last_summary = summary
-            if cookie_value and ("~0~" in cookie_value or "~1~" in cookie_value):
-                logger.info("Akamaiセッション検証完了 (_abck cookie OK)")
-                return True
-            self.page.wait_for_timeout(250)
-
-        message = (
-            f"Akamaiセッション検証が完了せず、_abck cookie が ~0~ になりませんでした "
-            f"(status={last_summary or 'unknown'})"
-        )
-        if strict:
-            raise RuntimeError(message)
-        logger.warning("%s", message)
-        return False
 
     def _check_robot_detection(self) -> bool:
         """
@@ -433,64 +219,20 @@ class SalonBoardStylePoster:
 
         return False
 
-    def _perform_dummy_mouse_move(self, margin: int = 32) -> None:
-        """ページ内でのマウス移動を小さく挿入し、人間らしい操作を模倣する。"""
-        if not self.page:
-            return
-
-        viewport = self.page.viewport_size or {"width": 412, "height": 915}
-        width = max(1, viewport.get("width", 412))
-        height = max(1, viewport.get("height", 915))
-        margin = max(0, margin)
-
-        min_x = min(margin, width - 1)
-        max_x = max(min_x, width - 1 - margin)
-        min_y = min(margin, height - 1)
-        max_y = max(min_y, height - 1 - margin)
-
-        try:
-            target_x = self._random.randint(min_x, max_x) if max_x >= min_x else self._random.randint(0, width - 1)
-            target_y = self._random.randint(min_y, max_y) if max_y >= min_y else self._random.randint(0, height - 1)
-            steps = self._random.randint(3, 7)
-            self.page.mouse.move(target_x, target_y, steps=steps)
-        except Exception:
-            # マウス操作がサポートされない環境では黙ってスキップ
-            pass
-
     def _human_pause(
         self,
-        base_ms: Optional[int] = None,
-        jitter_ms: Optional[int] = None,
-        minimum_ms: Optional[int] = None,
+        base_ms: int = 500,
+        jitter_ms: int = 100,
+        minimum_ms: int = 50,
         with_mouse_move: bool = False
     ) -> None:
-        """
-        操作間に人間らしい待機を挿入する
-
-        Args:
-            base_ms: 基本待機時間（ミリ秒）
-            jitter_ms: 待機時間に加える揺らぎ（ミリ秒）
-            minimum_ms: 最小待機時間（ミリ秒）
-            with_mouse_move: True の場合は待機前にマウスを小さく動かして人間操作を疑似する
-        """
-        base = base_ms if base_ms is not None else self.HUMAN_BASE_WAIT_MS
-        jitter = jitter_ms if jitter_ms is not None else self.HUMAN_JITTER_MS
-        minimum = minimum_ms if minimum_ms is not None else self.HUMAN_MIN_WAIT_MS
-
-        base = max(0, base)
-        jitter = max(0, jitter)
-        minimum = max(0, minimum)
-
-        delay_ms = base + self._random.randint(-jitter, jitter)
-        delay_ms = max(minimum, delay_ms)
-
-        if with_mouse_move:
-            self._perform_dummy_mouse_move()
-
-        if self.page:
-            self.page.wait_for_timeout(delay_ms)
-        else:
-            time.sleep(delay_ms / 1000)
+        """待機処理 (Akamai対策の複雑なロジックは削除)"""
+        if not self.page:
+            return
+        
+        # 単純な待機のみ行う
+        sleep_ms = max(minimum_ms, base_ms + self._random.randint(-jitter_ms, jitter_ms))
+        self.page.wait_for_timeout(sleep_ms)
 
     def _select_salon_if_needed(self, salon_info: Optional[Dict]) -> None:
         """
@@ -594,10 +336,9 @@ class SalonBoardStylePoster:
                 current_url = "(unavailable)"
                 title = "(unavailable)"
             logger.debug(
-                "ダッシュボード待機中: url=%s title=%s _abck=%s",
+                "ダッシュボード待機中: url=%s title=%s",
                 current_url,
                 title,
-                self._summarize_abck_value(self._get_cookie_value("_abck")),
             )
             self.page.wait_for_timeout(check_interval_ms)
 
@@ -654,13 +395,11 @@ class SalonBoardStylePoster:
 
             now = time.monotonic()
             if now - last_log > 2.5:
-                abck = self._summarize_abck_value(self._get_cookie_value("_abck"))
                 logger.debug(
-                    "アップロード完了待機中: modal_visible=%s src=%s bg=%s _abck=%s",
+                    "アップロード完了待機中: modal_visible=%s src=%s bg=%s",
                     modal_visible,
                     src_text[:120],
                     bg_image[:120],
-                    abck,
                 )
                 last_log = now
 
@@ -919,14 +658,6 @@ class SalonBoardStylePoster:
             logger.info("画像アップロード開始...")
             self._last_failed_upload_reason = None
 
-            # アップロード開始前の待機（通信の安定化）
-            logger.info("Akamaiセッションの検証状態を確認中...")
-            clearance_ready = self._ensure_akamai_readiness()
-            if not clearance_ready:
-                logger.info("センサー刺激後も完了しないため、アップロード処理で完了を誘発します。")
-            logger.info("通信安定化のためランダム待機中...")
-            self._human_pause(base_ms=1100, jitter_ms=450, minimum_ms=850)
-
             logger.info("アップロードエリアをクリック中...")
             self.page.locator(form_config["image"]["upload_area"]).click(timeout=self.TIMEOUT_CLICK)
             self._human_pause(base_ms=700, jitter_ms=250, minimum_ms=400)
@@ -964,10 +695,7 @@ class SalonBoardStylePoster:
                 pass
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350, with_mouse_move=True)
 
-            # Akamaiの動的チェックを回避するため、クリック直前にセンサーを再度刺激
-            logger.info("Akamaiセンサーを刺激中...")
-            self._stimulate_akamai_sensor()
-            self._human_pause(base_ms=800, jitter_ms=300, minimum_ms=500, with_mouse_move=True)
+
 
             # 強制的にクリック（JavaScriptで実行）
             logger.info("送信ボタンクリック中（JavaScript実行）...")
@@ -1009,9 +737,8 @@ class SalonBoardStylePoster:
                 extra = ""
                 if self._last_failed_upload_reason:
                     extra = f", request_failure={self._last_failed_upload_reason}"
-                akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
                 raise Exception(
-                    f"画像アップロードAPIが失敗しました (status={upload_response.status}, preview={body_preview}, akamai={akamai_status}{extra})"
+                    f"画像アップロードAPIが失敗しました (status={upload_response.status}, preview={body_preview}{extra})"
                 )
             elif manual_upload_required:
                 warning_message = (
@@ -1043,9 +770,8 @@ class SalonBoardStylePoster:
                     logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
                 except PlaywrightTimeoutError:
                     logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
-                    akamai_status = self._summarize_abck_value(self._get_cookie_value("_abck"))
                     raise Exception(
-                        f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD}, akamai={akamai_status})"
+                        f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD})"
                     ) from modal_timeout
             self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 

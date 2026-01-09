@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-salon_board_user}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-salon_board_user}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     container_name: salon_board_redis
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,7 +62,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: salon_board_worker
-    command: celery -A app.worker worker --loglevel=info
+    command: ./worker_entrypoint.sh
     volumes:
       - .:/app
       - ./logs:/app/logs

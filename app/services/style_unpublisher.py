@@ -7,9 +7,13 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set
 
+import logging
 from playwright.sync_api import Locator, TimeoutError as PlaywrightTimeoutError
 
 from app.services.style_poster import SalonBoardStylePoster, StylePostError
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StyleUnpublishError(Exception):
@@ -46,13 +50,23 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         exclude_numbers: Set[int],
         salon_info: Optional[Dict] = None,
         progress_callback: Optional[Callable[[int, int, Dict, Optional[Dict]], None]] = None,
-    ) -> None:
+        ) -> None:
         """
         非掲載処理のメインフロー
         """
         self.progress_callback = progress_callback
         target_numbers = [n for n in range(range_start, range_end + 1) if n not in exclude_numbers]
         expected_total = len(target_numbers)
+        processed_numbers: Set[int] = set()
+
+        logger.info(
+            "[UNPUBLISH] start user=%s range=%s-%s exclude=%s total=%s",
+            user_id,
+            range_start,
+            range_end,
+            sorted(exclude_numbers),
+            expected_total,
+        )
 
         def emit_progress(
             completed: int,
@@ -131,6 +145,13 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
 
             while processed < expected_total:
                 candidates = self._collect_candidates()
+                logger.info(
+                    "[UNPUBLISH] page=%s candidates=%s (target range %s-%s)",
+                    current_page,
+                    len(candidates),
+                    range_start,
+                    range_end,
+                )
                 filtered = [
                     c
                     for c in candidates
@@ -139,9 +160,18 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
 
                 if not filtered:
                     if current_page > 1:
+                        logger.info(
+                            "[UNPUBLISH] no candidates on page %s, moving to previous page",
+                            current_page,
+                        )
                         current_page -= 1
                         self._go_to_style_list_page(current_page)
                         continue
+                    logger.warning(
+                        "[UNPUBLISH] no candidates found on first page; processed=%s expected=%s",
+                        processed,
+                        expected_total,
+                    )
                     break
 
                 # 高い番号から処理してズレの影響を軽減
@@ -164,6 +194,14 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                 try:
                     self._unpublish_single_row(target, current_page)
                     processed += 1
+                    processed_numbers.add(target.style_number)
+                    logger.info(
+                        "[UNPUBLISH] success style_number=%s processed=%s/%s page=%s",
+                        target.style_number,
+                        processed,
+                        expected_total,
+                        current_page,
+                    )
                     emit_progress(
                         processed,
                         {
@@ -207,6 +245,36 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     )
                     # 一覧に戻ってリトライ可能状態にする
                     self._go_to_style_list_page(current_page)
+
+            remaining_targets = [n for n in target_numbers if n not in processed_numbers]
+            if remaining_targets:
+                logger.warning(
+                    "[UNPUBLISH] missing styles not found on list: %s",
+                    remaining_targets,
+                )
+                for num in remaining_targets:
+                    emit_progress(
+                        processed,
+                        {
+                            "stage": "UNPUBLISH_NOT_FOUND",
+                            "stage_label": "未処理のスタイルがあります",
+                            "message": f"スタイル番号 {num} を一覧から見つけられませんでした",
+                            "status": "warning",
+                            "current_index": processed,
+                            "total": expected_total,
+                            "style_number": num,
+                        },
+                        error={
+                            "row_number": 0,
+                            "style_name": f"番号 {num}",
+                            "field": "非掲載",
+                            "reason": "スタイル一覧に対象番号が見つかりませんでした",
+                            "screenshot_path": "",
+                        },
+                    )
+                raise StyleUnpublishError(
+                    f"非掲載対象のうち {len(remaining_targets)} 件が一覧で見つかりませんでした (例: {remaining_targets[:3]})"
+                )
 
             emit_progress(
                 processed,

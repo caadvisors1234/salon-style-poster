@@ -20,8 +20,8 @@
 - **フロントエンド**: Jinja2, HTML5, CSS3, JavaScript（モバイルファーストデザイン）
 - **データベース**: PostgreSQL 15+
 - **タスクキュー**: Celery, Redis
-- **ブラウザ自動化**: Playwright for Python（Firefox headless）
-- **コンテナ化**: Docker, Docker Compose（AMD64プラットフォーム指定）
+- **ブラウザ自動化**: Playwright for Python（Chrome Headful / Xvfb）
+- **コンテナ化**: Docker, Docker Compose（AMD64プラットフォーム指定, Xvfb環境）
 - **認証**: JWT (python-jose)
 - **暗号化**: Fernet (cryptography)、bcrypt (passlib)
 - **その他**: SQLAlchemy, Pydantic, Alembic, Pandas
@@ -29,7 +29,8 @@
 ## 3. 重要な技術的考慮事項
 
 ### ARM64（Apple Silicon）環境での注意点
-このアプリケーションはARM64環境（Apple Silicon Mac等）でも動作しますが、Playwrightブラウザの起動問題を回避するため、Docker設定で`platform: linux/amd64`を指定しています。これによりエミュレーションが発生しますが、ブラウザ起動時間は約2-3秒で正常に動作します。
+このアプリケーションはARM64環境（Apple Silicon Mac等）でも動作しますが、Playwrightブラウザの起動問題を回避するため、Docker設定で`platform: linux/amd64`を指定しています。
+また、Akamai回避のためにヘッドフルモード（Xvfb仮想ディスプレイ）を使用します。エミュレーションにより多少のオーバーヘッドがありますが、安定して動作します。
 
 ### 画像アップロード処理の実装
 SALON BOARDの画像アップロードモーダルでは、送信ボタンに`.isActive`クラスが付与されるのを待つとタイムアウトが発生するため、画像選択後2秒待機してから直接ボタンをクリックする方式を採用しています。
@@ -54,6 +55,12 @@ cp .env.example .env
 from cryptography.fernet import Fernet
 key = Fernet.generate_key()
 print(key.decode())
+```
+
+また、ブラウザの起動モードを制御する以下の設定も確認してください（デフォルトは `True` です）。
+```ini
+# Akamai回避のため、通常はTrue（ヘッドフルモード）を推奨
+USE_HEADFUL_MODE=True
 ```
 
 ### ステップ2: Dockerコンテナのビルドと起動
@@ -213,16 +220,20 @@ docker-compose up -d db
 docker-compose logs db
 ```
 
-### Celeryワーカーが起動しない
-**症状**: タスクが「処理中」のまま進まない
+### Celeryワーカーが起動しない / Playwrightがハングする
+**症状**: タスクが「処理中」のまま進まない、ログに `BROWSER_STARTING` から進まない
 
 **解決策**:
 ```bash
 # ワーカーログ確認
+# "Xvfb is ready." が出力されているか確認してください
 docker-compose logs worker
 
-# ワーカー再起動
+# ワーカー再起動 (ロックファイルのクリア含む)
 docker-compose restart worker
+
+# コンテナの完全再作成 (Xvfbの問題が解決しない場合)
+docker-compose up -d --force-recreate worker
 
 # Redisの状態確認
 docker-compose exec redis redis-cli ping

@@ -153,7 +153,7 @@ def process_style_post_task(
         poster = SalonBoardStylePoster(
             selectors=selectors,
             screenshot_dir=screenshot_dir,
-            headless=True,
+            headless=not settings.USE_HEADFUL_MODE,
             slow_mo=100
         )
 
@@ -369,7 +369,7 @@ def unpublish_styles_task(
         unpublisher = SalonBoardStyleUnpublisher(
             selectors=selectors,
             screenshot_dir=screenshot_dir,
-            headless=True,
+            headless=not settings.USE_HEADFUL_MODE,
             slow_mo=100,
         )
 

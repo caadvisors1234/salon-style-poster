@@ -41,7 +41,7 @@ SALON BOARDへのログインから、指定された複数スタイルの連続
 - **ブラウザ起動 (`_start_browser`)**:
     - `sync_playwright().start()` でPlaywrightを起動する。
     - `playwright.chromium.launch(channel="chrome", **launch_kwargs)` でChromeチャンネルのChromiumを優先的に起動し、失敗した場合は `playwright.chromium.launch(**launch_kwargs)` にフォールバックする。
-    - `browser.new_context(...)` では Pixel 7 Pro 相当のモバイル環境を再現するため、以下のパラメータを設定する：`viewport={"width": 412, "height": 915}`、モバイル用User-Agent、`device_scale_factor=2.75`、`is_mobile=True`、`has_touch=True`、`locale="ja-JP"`、`timezone_id="Asia/Tokyo"`。
+    - `browser.new_context(...)` では **デスクトップChrome相当の環境** を再現するため、以下のパラメータを設定する：`viewport={"width": 1366, "height": 768}`、デスクトップ用User-Agent、`device_scale_factor=1.0`、`is_mobile=False`、`has_touch=False`、`locale="ja-JP"`、`timezone_id="Asia/Tokyo"`。
     - `context.add_init_script(...)` で `navigator.webdriver` の隠蔽や `platform`・`maxTouchPoints` の補正、`ontouchstart`・`matchMedia` のポリフィルを適用する。
     - `context.new_page()` でページを生成し、`self.page` に格納した後、`requestfailed`・`response`・`request` イベントリスナーを登録し `stealth_sync(self.page)` を適用する。
     - `page.set_default_timeout(180000)` を設定し、全操作のデフォルトタイムアウトを3分に統一する。
@@ -323,7 +323,7 @@ celery_app.control.revoke(str(task_id), terminate=True, signal='SIGKILL')
 実装時、以下の点を確認すること：
 
 - [ ] ChromeチャンネルのChromium起動を優先し、フォールバック時も自動化検知対策（User-Agent, webdriver隠蔽）を維持
-- [ ] Pixel 7 Pro相当のモバイルコンテキストと `playwright_stealth` を適用
+- [ ] デスクトップChrome相当のコンテキスト（1366x768, desktop UA, is_mobile=False, has_touch=False）と `playwright_stealth` を適用
 - [ ] デフォルトタイムアウトを180秒に設定し、主要操作前後に `_human_pause()` を挿入
 - [ ] 画像アップロードで `.isActive` の可視化を待ち、`expect_response` で `imgUpload` API を監視
 - [ ] 進捗コールバックをtry-exceptの外で呼び出し

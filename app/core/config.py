@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "SALON BOARD Style Poster"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    USE_HEADFUL_MODE: bool = True  # ヘッドフルモード（画面あり）を使用するか
 
     # データベース設定
     POSTGRES_USER: str
