@@ -42,6 +42,14 @@ class SalonBoardStylePoster:
     TIMEOUT_IMAGE_UPLOAD = 60000  # 画像アップロード
     TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
     IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
+
+    # 待機時間定数（ミリ秒）
+    WAIT_SHORT_BASE = 500
+    WAIT_MEDIUM_BASE = 700
+    WAIT_LONG_BASE = 1000
+    WAIT_JITTER_DEFAULT = 100
+    WAIT_MIN_DEFAULT = 50
+
     HUMAN_BASE_WAIT_MS = 700  # 人間らしい基本待機（ミリ秒）
     HUMAN_JITTER_MS = 350  # 人間らしい待機のばらつき（ミリ秒）
     HUMAN_MIN_WAIT_MS = 250  # 最小待機時間（ミリ秒）
@@ -78,7 +86,6 @@ class SalonBoardStylePoster:
 
     def _start_browser(self):
         """ブラウザ起動"""
-        logger.info("ブラウザを起動中...")
         self.playwright = sync_playwright().start()
 
         launch_kwargs = {
@@ -90,35 +97,41 @@ class SalonBoardStylePoster:
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
             ],
+            # 自動化制御のフラグを除外
             "ignore_default_args": ["--enable-automation"],
         }
         
-        if not self.headless:
-            launch_kwargs["args"].append("--start-maximized")
-
+        # Chromeチャンネルを優先使用。失敗時はバンドルChromium。
         try:
             self.browser = self.playwright.chromium.launch(channel="chrome", **launch_kwargs)
-            logger.info("ChromeチャンネルのChromiumを使用します")
-        except Exception as channel_error:
-            logger.warning("Chromeチャンネル起動に失敗: %s。Playwright同梱Chromiumで再試行します。", channel_error)
+        except Exception:
             self.browser = self.playwright.chromium.launch(**launch_kwargs)
 
-        # コンテキスト作成
+        # 固定のWindows User-Agentを使用（指紋の一貫性のため）
+        user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
         context_kwargs = {
             "viewport": {"width": 1280, "height": 960},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "user_agent": user_agent,
             "locale": "ja-JP",
-            "timezone_id": "Asia/Tokyo"
+            "timezone_id": "Asia/Tokyo",
+            "accept_downloads": True,
         }
-        if not self.headless:
-            context_kwargs["viewport"] = None # ビューポートを無効化してウィンドウサイズに合わせる
 
         self.context = self.browser.new_context(**context_kwargs)
-
-        # 指紋対策（最小限）
         self.context.add_init_script(
             """
+            // 自動化フラグの隠蔽
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            
+            // PlatformをWindowsに偽装（Linuxコンテナ対策）
+            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+            
+            // Hardware Concurrencyの偽装（オプション）
+            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
             """
         )
 
@@ -223,13 +236,12 @@ class SalonBoardStylePoster:
         self,
         base_ms: int = 500,
         jitter_ms: int = 100,
-        minimum_ms: int = 50,
-        with_mouse_move: bool = False
+        minimum_ms: int = 50
     ) -> None:
-        """待機処理 (Akamai対策の複雑なロジックは削除)"""
+        """待機処理"""
         if not self.page:
             return
-        
+
         # 単純な待機のみ行う
         sleep_ms = max(minimum_ms, base_ms + self._random.randint(-jitter_ms, jitter_ms))
         self.page.wait_for_timeout(sleep_ms)
@@ -629,44 +641,32 @@ class SalonBoardStylePoster:
             logger.warning("スタイル一覧ページへの戻りを諦めます。次のスタイル処理時に再試行します。")
             return False
 
-    def step_process_single_style(self, style_data: Dict, image_path: str) -> List[Dict[str, object]]:
-        """
-        1件のスタイル処理
-
-        Args:
-            style_data: スタイル情報の辞書
-            image_path: 画像ファイルのパス
-        Returns:
-            List[Dict[str, object]]: 画像アップロードに関する警告（手動対応が必要な場合のみ）
-        """
-        manual_upload_events: List[Dict[str, object]] = []
-        row_number = style_data.get("_row_number", 0)
+    def _upload_image(
+        self,
+        image_path: str,
+        form_config: Dict,
+        row_number: int,
+        style_name: str
+    ) -> List[Dict[str, object]]:
+        """画像アップロード処理"""
+        manual_upload_events = []
         image_filename = Path(image_path).name
-
-        form_config = self.selectors["style_form"]
-
-        # 新規登録ページへ
-        try:
-            logger.info("新規登録ボタンをクリック中...")
-            self._click_and_wait(form_config["new_style_button"])
-            logger.info("新規登録ページへ移動完了")
-        except Exception as e:
-            raise StylePostError(f"新規登録ページへの移動に失敗しました: {e}", self._take_screenshot("error-new-style-page"))
-
-        # 画像アップロード
+        
         try:
             logger.info("画像アップロード開始...")
             self._last_failed_upload_reason = None
 
             logger.info("アップロードエリアをクリック中...")
             self.page.locator(form_config["image"]["upload_area"]).click(timeout=self.TIMEOUT_CLICK)
-            self._human_pause(base_ms=700, jitter_ms=250, minimum_ms=400)
+            self._human_pause(base_ms=self.WAIT_MEDIUM_BASE, jitter_ms=250, minimum_ms=400)
+            
             logger.info("モーダル表示待機中...")
             self.page.wait_for_selector(form_config["image"]["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause(base_ms=750, jitter_ms=260, minimum_ms=450)
+            self._human_pause(base_ms=self.WAIT_MEDIUM_BASE, jitter_ms=250, minimum_ms=450)
+            
             logger.info("画像ファイル選択準備中: %s", image_path)
-
             self.page.locator(form_config["image"]["file_input"]).set_input_files(image_path)
+            
             try:
                 self.page.locator(form_config["image"]["submit_button_active"]).wait_for(
                     state="visible",
@@ -685,17 +685,13 @@ class SalonBoardStylePoster:
             # 送信ボタンの状態を確認
             submit_button = self.page.locator(form_config["image"]["submit_button_active"])
             logger.info("送信ボタン確認中...")
-
-            # ボタンが表示されるまで待機
             submit_button.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
+            
             try:
                 submit_button.hover(timeout=2000)
             except Exception:
-                # hover不可（例: モバイルコンテキスト）の場合はスキップ
                 pass
-            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350, with_mouse_move=True)
-
-
+            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
 
             # 強制的にクリック（JavaScriptで実行）
             logger.info("送信ボタンクリック中（JavaScript実行）...")
@@ -707,6 +703,7 @@ class SalonBoardStylePoster:
             upload_response: Optional[Response] = None
             manual_upload_required = False
             manual_upload_reason = ""
+            
             try:
                 with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
                     submit_button.evaluate("el => el.click()")
@@ -717,12 +714,14 @@ class SalonBoardStylePoster:
                 manual_upload_reason = reason
                 if "ERR_ABORTED" in reason.upper():
                     manual_upload_required = True
+                    
                 modal_hidden = False
                 try:
                     self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=2000)
                     modal_hidden = True
                 except PlaywrightTimeoutError:
-                    modal_hidden = False
+                    pass
+                
                 if modal_hidden:
                     logger.warning("%s。モーダルは既に閉じているため続行します。", reason)
                 else:
@@ -746,18 +745,16 @@ class SalonBoardStylePoster:
                     "SALON BOARDで手動アップロードを実施してください。"
                 )
                 logger.warning("%s", warning_message)
-                manual_upload_events.append(
-                    {
-                        "row_number": row_number,
-                        "style_name": style_data.get("スタイル名", "不明"),
-                        "field": "画像アップロード",
-                        "reason": warning_message,
-                        "image_name": image_filename,
-                        "error_category": "IMAGE_UPLOAD_ABORTED",
-                        "raw_error": manual_upload_reason,
-                        "screenshot_path": ""
-                    }
-                )
+                manual_upload_events.append({
+                    "row_number": row_number,
+                    "style_name": style_name,
+                    "field": "画像アップロード",
+                    "reason": warning_message,
+                    "image_name": image_filename,
+                    "error_category": "IMAGE_UPLOAD_ABORTED",
+                    "raw_error": manual_upload_reason,
+                    "screenshot_path": ""
+                })
 
             self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
 
@@ -769,13 +766,13 @@ class SalonBoardStylePoster:
                     self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=1000)
                     logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
                 except PlaywrightTimeoutError:
-                    logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
                     raise Exception(
                         f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD})"
                     ) from modal_timeout
+            
             self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
 
-            # 画像アップロード後のプレビュー確認（networkidleを使わずDOMシグナルで判定）
+            # 画像アップロード後のプレビュー確認
             logger.info("アップロード結果を確認中...")
             self._wait_for_upload_completion(
                 upload_area_selector=form_config["image"]["upload_area"],
@@ -784,15 +781,13 @@ class SalonBoardStylePoster:
             )
             self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
 
-            # エラーダイアログの確認と処理
+            # エラーダイアログの確認
             error_dialog_selector = "div.modpopup01.sch.w400.cf.dialog"
             try:
                 error_dialog = self.page.locator(error_dialog_selector)
                 if error_dialog.count() > 0 and error_dialog.first.is_visible(timeout=1000):
-                    # エラーメッセージを取得
                     error_message = self.page.locator(f"{error_dialog_selector} .message").inner_text()
                     logger.warning("エラーダイアログ検出: %s", error_message)
-                    # OKボタンをクリックして閉じる
                     ok_button = self.page.locator(f"{error_dialog_selector} a.accept")
                     ok_button.click(timeout=5000)
                     self._human_pause(base_ms=650, jitter_ms=200, minimum_ms=400)
@@ -800,100 +795,124 @@ class SalonBoardStylePoster:
             except Exception as dialog_error:
                 if "画像アップロードエラー" in str(dialog_error):
                     raise
-                # ダイアログが存在しない場合は無視
                 pass
 
             logger.info("画像アップロード完了")
+            return manual_upload_events
+
         except Exception as e:
             raise StylePostError(f"画像アップロードに失敗しました: {e}", self._take_screenshot("error-image-upload"))
 
-        # スタイリスト名選択
+    def _select_stylist(self, stylist_name: str, form_config: Dict):
+        """スタイリスト名選択"""
         try:
             logger.info("スタイリスト名選択中...")
             stylist_select = self.page.locator(form_config["stylist_name_select"])
             stylist_select.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause()
-            stylist_select.select_option(label=style_data["スタイリスト名"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            
+            stylist_select.select_option(label=stylist_name, timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=750, jitter_ms=240, minimum_ms=400)
             logger.info("スタイリスト名選択完了")
         except Exception as e:
-            raise StylePostError(f"スタイリスト名の選択に失敗しました（スタイリスト: {style_data.get('スタイリスト名', '不明')}）: {e}", self._take_screenshot("error-stylist-select"))
+            raise StylePostError(
+                f"スタイリスト名の選択に失敗しました（スタイリスト: {stylist_name}）: {e}",
+                self._take_screenshot("error-stylist-select")
+            )
 
-        # テキスト入力
+    def _fill_style_details(self, style_data: Dict, form_config: Dict):
+        """テキスト項目入力"""
         try:
             logger.info("テキスト入力中...")
             self._human_pause()
-            self.page.locator(form_config["stylist_comment_textarea"]).fill(style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            self.page.locator(form_config["stylist_comment_textarea"]).fill(
+                style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT
+            )
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
-            self.page.locator(form_config["style_name_input"]).fill(style_data["スタイル名"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            
+            self.page.locator(form_config["style_name_input"]).fill(
+                style_data["スタイル名"], timeout=self.TIMEOUT_WAIT_ELEMENT
+            )
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
-            self.page.locator(form_config["menu_detail_textarea"]).fill(style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+            
+            self.page.locator(form_config["menu_detail_textarea"]).fill(
+                style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT
+            )
             self._human_pause(base_ms=750, jitter_ms=230, minimum_ms=400)
             logger.info("テキスト入力完了")
         except Exception as e:
             raise StylePostError(f"テキスト入力に失敗しました: {e}", self._take_screenshot("error-text-input"))
 
-        # カテゴリ/長さ選択
+    def _select_category_and_length(self, category: str, length: str, form_config: Dict):
+        """カテゴリ/長さ選択"""
         try:
             logger.info("カテゴリ/長さ選択中...")
-            category = style_data["カテゴリ"]
             if category == "レディース":
                 self._human_pause()
                 self.page.locator(form_config["category_ladies_radio"]).click(timeout=self.TIMEOUT_CLICK)
                 self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
                 self.page.locator(form_config["length_select_ladies"]).select_option(
-                    label=style_data["長さ"], timeout=self.TIMEOUT_WAIT_ELEMENT
+                    label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
             elif category == "メンズ":
                 self._human_pause()
                 self.page.locator(form_config["category_mens_radio"]).click(timeout=self.TIMEOUT_CLICK)
                 self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
                 self.page.locator(form_config["length_select_mens"]).select_option(
-                    label=style_data["長さ"], timeout=self.TIMEOUT_WAIT_ELEMENT
+                    label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
             self._human_pause(base_ms=750, jitter_ms=220, minimum_ms=400)
             logger.info("カテゴリ/長さ選択完了")
         except Exception as e:
-            raise StylePostError(f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {style_data.get('長さ', '不明')}）: {e}", self._take_screenshot("error-category-length"))
+            raise StylePostError(
+                f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {length}）: {e}",
+                self._take_screenshot("error-category-length")
+            )
 
-        # クーポン選択
+    def _select_coupon(self, coupon_name: str, form_config: Dict):
+        """クーポン選択"""
         try:
             logger.info("クーポン選択中...")
             coupon_config = form_config["coupon"]
             self._human_pause()
+            
             self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
             self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
 
-            coupon_selector = coupon_config["item_label_template"].format(
-                name=style_data["クーポン名"]
-            )
+            coupon_selector = coupon_config["item_label_template"].format(name=coupon_name)
             self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
             self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
+            
             self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
             self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
             self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
             logger.info("クーポン選択完了")
         except Exception as e:
-            raise StylePostError(f"クーポンの選択に失敗しました（クーポン: {style_data.get('クーポン名', '不明')}）: {e}", self._take_screenshot("error-coupon-select"))
+            raise StylePostError(
+                f"クーポンの選択に失敗しました（クーポン: {coupon_name}）: {e}",
+                self._take_screenshot("error-coupon-select")
+            )
 
-        # ハッシュタグ入力
+    def _input_hashtags(self, hashtags_str: str, form_config: Dict):
+        """ハッシュタグ入力"""
         try:
             logger.info("ハッシュタグ入力中...")
             hashtag_config = form_config["hashtag"]
-            hashtags = style_data["ハッシュタグ"].split(",")
+            hashtags = hashtags_str.split(",")
 
             for tag in hashtags:
                 tag = tag.strip()
                 if tag:
                     self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
                     self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
-                    self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)  # 反映待機
+                    self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)
             logger.info("ハッシュタグ入力完了")
         except Exception as e:
             raise StylePostError(f"ハッシュタグの入力に失敗しました: {e}", self._take_screenshot("error-hashtag"))
 
-        # 登録
+    def _submit_style_registration(self, form_config: Dict):
+        """登録実行"""
         try:
             logger.info("登録ボタンクリック中...")
             self._click_and_wait(form_config["register_button"])
@@ -902,32 +921,65 @@ class SalonBoardStylePoster:
         except Exception as e:
             raise StylePostError(f"スタイル登録の完了に失敗しました: {e}", self._take_screenshot("error-register"))
 
-        # スタイル一覧へ戻る
+    def step_process_single_style(self, style_data: Dict, image_path: str) -> List[Dict[str, object]]:
+        """
+        1件のスタイル処理（リファクタリング版）
+        """
+        row_number = style_data.get("_row_number", 0)
+        form_config = self.selectors["style_form"]
+
+        # 新規登録ページへ
+        try:
+            logger.info("新規登録ボタンをクリック中...")
+            self._click_and_wait(form_config["new_style_button"])
+            logger.info("新規登録ページへ移動完了")
+        except Exception as e:
+            raise StylePostError(f"新規登録ページへの移動に失敗しました: {e}", self._take_screenshot("error-new-style-page"))
+
+        # 1. 画像アップロード
+        manual_upload_events = self._upload_image(
+            image_path, form_config, row_number, style_data.get("スタイル名", "不明")
+        )
+
+        # 2. スタイリスト選択
+        self._select_stylist(style_data["スタイリスト名"], form_config)
+
+        # 3. テキスト入力
+        self._fill_style_details(style_data, form_config)
+
+        # 4. カテゴリ/長さ選択
+        self._select_category_and_length(style_data["カテゴリ"], style_data.get("長さ", ""), form_config)
+
+        # 5. クーポン選択
+        self._select_coupon(style_data.get("クーポン名", ""), form_config)
+
+        # 6. ハッシュタグ入力
+        self._input_hashtags(style_data.get("ハッシュタグ", ""), form_config)
+
+        # 7. 登録
+        self._submit_style_registration(form_config)
+
+        # 8. スタイル一覧へ戻る
         logger.info("スタイル一覧へ戻る...")
         back_to_list_button = form_config["back_to_list_button"]
         list_ready_selector = form_config["new_style_button"]
-        back_navigation_timeout = 10000  # 明示的に10秒に制限
-        back_navigation_error: Optional[Exception] = None
+        back_navigation_timeout = 10000
 
         try:
             self._click_and_wait(back_to_list_button, load_timeout=back_navigation_timeout)
             self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
             logger.info("スタイル登録完了: %s", style_data["スタイル名"])
         except Exception as navigation_error:
-            back_navigation_error = navigation_error
             logger.warning("通常の戻る操作に失敗（%s）。直接URLで一覧に戻ります。", navigation_error)
-
-        if back_navigation_error:
             try:
                 self.step_navigate_to_style_list_page(use_direct_url=True)
                 self.page.wait_for_selector(list_ready_selector, timeout=self.TIMEOUT_LOAD)
-                logger.info("直接URLでスタイル一覧に戻りました: %s", style_data["スタイル名"])
-            except Exception as direct_navigation_error:
-                combined_message = (
-                    f"スタイル一覧への戻りに失敗しました: {back_navigation_error}; "
-                    f"直接URL遷移にも失敗: {direct_navigation_error}"
+                logger.info("直接URLでスタイル一覧に戻りました")
+            except Exception as direct_error:
+                raise StylePostError(
+                    f"スタイル一覧への戻りに失敗しました: {navigation_error}; 直接遷移も失敗: {direct_error}",
+                    self._take_screenshot("error-back-to-list")
                 )
-                raise StylePostError(combined_message, self._take_screenshot("error-back-to-list"))
 
         return manual_upload_events
 
