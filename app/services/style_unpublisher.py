@@ -11,6 +11,7 @@ import logging
 from playwright.sync_api import Locator, TimeoutError as PlaywrightTimeoutError
 
 from app.services.style_poster import SalonBoardStylePoster, StylePostError
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
