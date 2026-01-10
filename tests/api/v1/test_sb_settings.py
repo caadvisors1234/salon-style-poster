@@ -102,9 +102,10 @@ def test_cannot_access_other_user_settings(client: TestClient, db_session: Sessi
 
     # 3. 元のユーザーで他のユーザーの設定を操作しようとして失敗することを確認
     # GET
+    # GET
     get_res = client.get(f"/api/v1/sb-settings/{other_setting_id}", headers=normal_user_auth_headers)
-    # Note: GET by id is not implemented, so this would be 405 Method Not Allowed.
-    assert get_res.status_code == 405
+    # Note: GET by id IS implemented and checks permissions, so this should be 403 Forbidden.
+    assert get_res.status_code == 403
 
     # PUT
     update_res = client.put(f"/api/v1/sb-settings/{other_setting_id}", headers=normal_user_auth_headers, json={"setting_name": "hacked"})

@@ -54,8 +54,29 @@ def client(db_session):
     # アプリケーションのget_db依存性をオーバーライド
     app.dependency_overrides[get_db] = override_get_db
 
+    # 全てのレート制限を無効化
+    limiters = []
+    if hasattr(app.state, "limiter"):
+        limiters.append(app.state.limiter)
+    
+    try:
+        from app.api.v1.endpoints import auth, tasks
+        if hasattr(auth, "limiter"):
+            limiters.append(auth.limiter)
+        if hasattr(tasks, "limiter"):
+            limiters.append(tasks.limiter)
+    except ImportError:
+        pass
+
+    for l in limiters:
+        l.enabled = False
+
     with TestClient(app) as c:
         yield c
+
+    # レート制限を有効化（戻す）
+    for l in limiters:
+        l.enabled = True
 
     # テスト終了後にオーバーライドを元に戻す
     app.dependency_overrides.clear()
