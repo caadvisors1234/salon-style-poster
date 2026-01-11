@@ -83,6 +83,43 @@ class SalonBoardStylePoster:
         self.page: Optional[Page] = None
         self.progress_callback: Optional[Callable] = None
         self._last_failed_upload_reason: Optional[str] = None
+        self.expected_total: int = 0
+
+    def _emit_progress(
+        self,
+        completed: int,
+        detail: Optional[Dict[str, object]] = None,
+        *,
+        error: Optional[Dict[str, object]] = None,
+        total_override: Optional[int] = None
+    ) -> None:
+        """進捗コールバックを通じて詳細情報を通知"""
+        if not self.progress_callback:
+            return
+
+        total_value = total_override if total_override is not None else self.expected_total
+        
+        if not total_value and detail and isinstance(detail.get("total"), int):
+            total_value = int(detail["total"])
+            
+        if detail is not None:
+            payload = dict(detail)
+            payload.setdefault("current_index", completed)
+            if total_value:
+                payload.setdefault("total", total_value)
+            self.progress_callback(
+                completed,
+                total_value,
+                detail=payload,
+                error=error
+            )
+        else:
+            self.progress_callback(
+                completed,
+                total_value,
+                detail=None,
+                error=error
+            )
 
     def _start_browser(self):
         """ブラウザ起動"""
@@ -921,12 +958,13 @@ class SalonBoardStylePoster:
         except Exception as e:
             raise StylePostError(f"スタイル登録の完了に失敗しました: {e}", self._take_screenshot("error-register"))
 
-    def step_process_single_style(self, style_data: Dict, image_path: str) -> List[Dict[str, object]]:
+    def step_process_single_style(self, style_data: Dict, image_path: str, current_index: int) -> List[Dict[str, object]]:
         """
         1件のスタイル処理（リファクタリング版）
         """
         row_number = style_data.get("_row_number", 0)
         form_config = self.selectors["style_form"]
+        style_name = style_data.get("スタイル名", "不明")
 
         # 新規登録ページへ
         try:
@@ -937,26 +975,109 @@ class SalonBoardStylePoster:
             raise StylePostError(f"新規登録ページへの移動に失敗しました: {e}", self._take_screenshot("error-new-style-page"))
 
         # 1. 画像アップロード
+        image_name = style_data.get("画像名", "")
+        self._emit_progress(
+             current_index,
+             {
+                 "current_index": current_index + 1,
+                 "stage": "IMAGE_UPLOADING",
+                 "stage_label": "画像アップロード中",
+                 "message": f"画像[{image_name}]をアップロードしています...",
+                 "status": "working",
+                 "style_name": style_name
+             }
+        )
         manual_upload_events = self._upload_image(
-            image_path, form_config, row_number, style_data.get("スタイル名", "不明")
+            image_path, form_config, row_number, style_name
         )
 
         # 2. スタイリスト選択
-        self._select_stylist(style_data["スタイリスト名"], form_config)
+        stylist_name = style_data["スタイリスト名"]
+        self._emit_progress(
+             current_index,
+             {
+                 "current_index": current_index + 1,
+                 "stage": "STYLIST_SELECTING",
+                 "stage_label": "スタイリスト選択中",
+                 "message": f"スタイリスト[{stylist_name}]を選択しています...",
+                 "status": "working",
+                 "style_name": style_name
+             }
+        )
+        self._select_stylist(stylist_name, form_config)
 
         # 3. テキスト入力
+        self._emit_progress(
+             current_index,
+             {
+                 "current_index": current_index + 1,
+                 "stage": "TEXT_INPUTTING",
+                 "stage_label": "詳細入力中",
+                 "message": "スタイル詳細テキストを入力しています...",
+                 "status": "working",
+                 "style_name": style_name
+             }
+        )
         self._fill_style_details(style_data, form_config)
 
         # 4. カテゴリ/長さ選択
+        self._emit_progress(
+             current_index,
+             {
+                 "current_index": current_index + 1,
+                 "stage": "CATEGORY_SELECTING",
+                 "stage_label": "カテゴリ設定中",
+                 "message": "カテゴリと長さを設定しています...",
+                 "status": "working",
+                 "style_name": style_name
+             }
+        )
         self._select_category_and_length(style_data["カテゴリ"], style_data.get("長さ", ""), form_config)
 
         # 5. クーポン選択
-        self._select_coupon(style_data.get("クーポン名", ""), form_config)
+        coupon_name = style_data.get("クーポン名", "")
+        if coupon_name:
+             self._emit_progress(
+                 current_index,
+                 {
+                     "current_index": current_index + 1,
+                     "stage": "COUPON_SELECTING",
+                     "stage_label": "クーポン設定中",
+                     "message": f"クーポン[{coupon_name}]を設定しています...",
+                     "status": "working",
+                     "style_name": style_name
+                 }
+            )
+        self._select_coupon(coupon_name, form_config)
 
         # 6. ハッシュタグ入力
-        self._input_hashtags(style_data.get("ハッシュタグ", ""), form_config)
+        hashtags = style_data.get("ハッシュタグ", "")
+        if hashtags:
+             self._emit_progress(
+                 current_index,
+                 {
+                     "current_index": current_index + 1,
+                     "stage": "HASHTAG_INPUTTING",
+                     "stage_label": "ハッシュタグ入力中",
+                     "message": "ハッシュタグを入力しています...",
+                     "status": "working",
+                     "style_name": style_name
+                 }
+            )
+        self._input_hashtags(hashtags, form_config)
 
         # 7. 登録
+        self._emit_progress(
+             current_index,
+             {
+                 "current_index": current_index + 1,
+                 "stage": "REGISTERING",
+                 "stage_label": "登録処理中",
+                 "message": "スタイル情報を登録しています...",
+                 "status": "working",
+                 "style_name": style_name
+             }
+        )
         self._submit_style_registration(form_config)
 
         # 8. スタイル一覧へ戻る
@@ -1006,44 +1127,11 @@ class SalonBoardStylePoster:
             total_items: 期待される処理件数（事前計算済みの総件数）
         """
         self.progress_callback = progress_callback
-        expected_total = total_items or 0
-
-        def emit_progress(
-            completed: int,
-            detail: Optional[Dict[str, object]] = None,
-            *,
-            error: Optional[Dict[str, object]] = None,
-            total_override: Optional[int] = None
-        ) -> None:
-            """進捗コールバックを通じて詳細情報を通知"""
-            if not self.progress_callback:
-                return
-
-            total_value = total_override if total_override is not None else expected_total
-            if not total_value and detail and isinstance(detail.get("total"), int):
-                total_value = int(detail["total"])
-            if detail is not None:
-                payload = dict(detail)
-                payload.setdefault("current_index", completed)
-                if total_value:
-                    payload.setdefault("total", total_value)
-                self.progress_callback(
-                    completed,
-                    total_value,
-                    detail=payload,
-                    error=error
-                )
-            else:
-                self.progress_callback(
-                    completed,
-                    total_value,
-                    detail=None,
-                    error=error
-                )
+        self.expected_total = total_items or 0
 
         try:
             # ブラウザ起動
-            emit_progress(
+            self._emit_progress(
                 0,
                 {
                     "stage": "BROWSER_STARTING",
@@ -1051,11 +1139,11 @@ class SalonBoardStylePoster:
                     "message": "Playwrightを起動しています",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total
+                    "total": self.expected_total
                 }
             )
             self._start_browser()
-            emit_progress(
+            self._emit_progress(
                 0,
                 {
                     "stage": "BROWSER_READY",
@@ -1063,13 +1151,13 @@ class SalonBoardStylePoster:
                     "message": "Playwrightの起動が完了しました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total
+                    "total": self.expected_total
                 }
             )
 
             # ログイン
             self.step_login(user_id, password, salon_info)
-            emit_progress(
+            self._emit_progress(
                 0,
                 {
                     "stage": "LOGIN_COMPLETED",
@@ -1077,7 +1165,7 @@ class SalonBoardStylePoster:
                     "message": "SALON BOARDへのログインが完了しました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total
+                    "total": self.expected_total
                 }
             )
 
@@ -1092,22 +1180,22 @@ class SalonBoardStylePoster:
 
             logger.info("%s件のスタイルデータを読み込みました", len(df))
             logger.debug("データカラム: %s", list(df.columns))
-            expected_total = len(df)
-            emit_progress(
+            self.expected_total = len(df)
+            self._emit_progress(
                 0,
                 {
                     "stage": "DATA_READY",
                     "stage_label": "データ読み込み完了",
-                    "message": f"{expected_total}件のスタイルデータを読み込みました",
+                    "message": f"{self.expected_total}件のスタイルデータを読み込みました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total
+                    "total": self.expected_total
                 }
             )
 
             # スタイル一覧ページへ移動
             self.step_navigate_to_style_list_page()
-            emit_progress(
+            self._emit_progress(
                 0,
                 {
                     "stage": "NAVIGATED",
@@ -1115,7 +1203,7 @@ class SalonBoardStylePoster:
                     "message": "スタイル一覧ページを開きました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total
+                    "total": self.expected_total
                 }
             )
 
@@ -1123,15 +1211,15 @@ class SalonBoardStylePoster:
             image_dir_path = Path(image_dir)
             for index, row in df.iterrows():
                 style_name = row.get("スタイル名", "不明")
-                emit_progress(
+                self._emit_progress(
                     index,
                     {
                         "stage": "STYLE_PROCESSING",
                         "stage_label": "スタイル処理中",
-                        "message": f"{index + 1}/{expected_total}件目「{style_name}」を処理しています",
+                        "message": f"{index + 1}/{self.expected_total}件目「{style_name}」を処理しています",
                         "status": "working",
                         "current_index": index + 1,
-                        "total": expected_total,
+                        "total": self.expected_total,
                         "style_name": style_name
                     }
                 )
@@ -1151,18 +1239,18 @@ class SalonBoardStylePoster:
                     style_dict["_row_number"] = index + 2  # CSVヘッダー分を考慮
 
                     # スタイル処理
-                    manual_events = self.step_process_single_style(style_dict, str(image_path))
+                    manual_events = self.step_process_single_style(style_dict, str(image_path), index)
 
                     # 成功時の進捗更新
-                    emit_progress(
+                    self._emit_progress(
                         index + 1,
                         {
                             "stage": "STYLE_COMPLETED",
                             "stage_label": "スタイル投稿完了",
-                            "message": f"{index + 1}/{expected_total}件目「{style_name}」の投稿が完了しました",
+                            "message": f"{index + 1}/{self.expected_total}件目「{style_name}」の投稿が完了しました",
                             "status": "completed",
                             "current_index": index + 1,
-                            "total": expected_total,
+                            "total": self.expected_total,
                             "style_name": style_name
                         }
                     )
@@ -1174,7 +1262,7 @@ class SalonBoardStylePoster:
                             event.setdefault("field", "画像アップロード")
                             event.setdefault("error_category", "IMAGE_UPLOAD_ABORTED")
                             event.setdefault("image_name", image_filename)
-                            emit_progress(
+                            self._emit_progress(
                                 index + 1,
                                 {
                                     "stage": "STYLE_WARNING",
@@ -1182,7 +1270,7 @@ class SalonBoardStylePoster:
                                     "message": f"{style_name} の画像をSALON BOARDで手動登録してください",
                                     "status": "warning",
                                     "current_index": index + 1,
-                                    "total": expected_total,
+                                    "total": self.expected_total,
                                     "style_name": style_name
                                 },
                         error=event
@@ -1210,30 +1298,30 @@ class SalonBoardStylePoster:
                         "reason": str(e),
                         "screenshot_path": screenshot_path
                     }
-                    emit_progress(
+                    self._emit_progress(
                         index + 1,
                         {
                             "stage": "STYLE_ERROR",
                             "stage_label": "スタイル投稿エラー",
-                            "message": f"{index + 1}/{expected_total}件目「{style_name}」でエラーが発生しました",
+                            "message": f"{index + 1}/{self.expected_total}件目「{style_name}」でエラーが発生しました",
                             "status": "error",
                             "current_index": index + 1,
-                            "total": expected_total,
+                            "total": self.expected_total,
                             "style_name": style_name
                         },
                         error=error_payload
                     )
 
             logger.info("全スタイルの処理が完了しました")
-            emit_progress(
-                expected_total,
+            self._emit_progress(
+                self.expected_total,
                 {
                     "stage": "SUMMARY",
                     "stage_label": "処理完了",
                     "message": "全てのスタイル投稿を完了しました",
                     "status": "success",
-                    "current_index": expected_total,
-                    "total": expected_total
+                    "current_index": self.expected_total,
+                    "total": self.expected_total
                 }
             )
 
