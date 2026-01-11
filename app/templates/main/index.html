@@ -21,7 +21,51 @@
 
             <!-- D&D対応ファイルアップロード -->
             <div class="form-group">
-                <label class="form-label fw-bold">スタイル情報ファイル (CSV/Excel)</label>
+                <div class="d-flex align-items-center mb-2">
+                    <label class="form-label fw-bold mb-0 me-2">スタイル情報ファイル (CSV/Excel)</label>
+                    <a href="#" class="text-secondary" onclick="toggleTemplateExample(event)" title="テンプレート形式の例を表示"
+                        style="text-decoration: none;">
+                        <i class="bi bi-question-circle-fill fs-5"></i>
+                    </a>
+                </div>
+
+                <div id="template-example" class="template-example hidden mb-3">
+                    <div class="card card-body bg-light p-3">
+                        <p class="mb-2 small">以下のカラムを持つCSVまたはExcelファイルを作成してください。</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered bg-white small mb-0" style="min-width: 800px;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>スタイリスト名</th>
+                                        <th>クーポン名</th>
+                                        <th>コメント</th>
+                                        <th>スタイル名</th>
+                                        <th>カテゴリ</th>
+                                        <th>長さ</th>
+                                        <th>メニュー内容</th>
+                                        <th>ハッシュタグ</th>
+                                        <th>画像名</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>山田 花子</td>
+                                        <td>【新規】...</td>
+                                        <td>春らしい...</td>
+                                        <td>春のふんわりボブ</td>
+                                        <td>レディース</td>
+                                        <td>ミディアム</td>
+                                        <td>カット+カラー</td>
+                                        <td>春髪, ボブ</td>
+                                        <td>spring_bob.jpg</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="mt-2 mb-0 x-small text-muted">※ 「画像名」はアップロードするファイル名と完全に一致させてください。</p>
+                    </div>
+                </div>
+
                 <div id="drop-zone-data" class="upload-drop-zone">
                     <div class="drop-zone-content">
                         <i class="bi bi-file-earmark-spreadsheet fs-1 text-muted mb-2"></i>
@@ -35,6 +79,7 @@
                         accept=".csv, .xlsx" required style="display:none;">
                     <div id="file-name-data" class="mt-2 text-primary fw-bold small"></div>
                 </div>
+
                 <span class="form-hint">テンプレート形式に沿ったファイル（.csv, .xlsx）を選択してください。</span>
             </div>
 
@@ -746,6 +791,12 @@
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function toggleTemplateExample(e) {
+        e.preventDefault();
+        const example = document.getElementById('template-example');
+        example.classList.toggle('hidden');
     }
 </script>
 {% endblock %}

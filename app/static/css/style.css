@@ -925,3 +925,23 @@ button, input, select, textarea {
         background-position: 0 0;
     }
 }
+
+/* Template Example */
+.template-example {
+    margin-top: 0.5rem;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease-in-out;
+}
+.x-small {
+    font-size: 0.75rem;
+}
+
+/* Utilities (Bootstrap-like) */
+.d-flex { display: flex !important; }
+.align-items-center { align-items: center !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-2 { margin-bottom: 0.5rem !important; }
+.mb-3 { margin-bottom: 1rem !important; }
+.me-2 { margin-right: 0.5rem !important; }
+.text-secondary { color: #6c757d !important; }
+.fs-5 { font-size: 1.25rem !important; }
