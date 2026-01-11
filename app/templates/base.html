@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SALON BOARD Style Poster{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.ico') }}" type="image/x-icon">
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     {% block extra_css %}{% endblock %}
 </head>
+
 <body>
     {% block header %}
     <header class="header">
@@ -15,14 +18,8 @@
             <div class="header-content">
                 <div class="header-bar">
                     <h1 class="header-title">SALON BOARD Style Poster</h1>
-                    <button
-                        id="menu-toggle"
-                        class="menu-toggle"
-                        type="button"
-                        aria-label="メニューを開閉"
-                        aria-expanded="false"
-                        aria-controls="header-nav"
-                    >
+                    <button id="menu-toggle" class="menu-toggle" type="button" aria-label="メニューを開閉"
+                        aria-expanded="false" aria-controls="header-nav">
                         <span class="menu-icon">
                             <span></span>
                             <span></span>
@@ -174,4 +171,5 @@
     </script>
     {% block extra_scripts %}{% endblock %}
 </body>
+
 </html>

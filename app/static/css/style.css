@@ -820,3 +820,128 @@ button, input, select, textarea {
 .mt-2 { margin-top: var(--space-4); }
 .mb-1 { margin-bottom: var(--space-2); }
 .mb-2 { margin-bottom: var(--space-4); }
+
+/* =========================================
+   UX Improvements (D&D, Progress)
+   ========================================= */
+
+/* Drag & Drop Zone */
+.upload-drop-zone {
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background-color: #f8fafc;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.upload-drop-zone:hover {
+    border-color: #94a3b8;
+    background-color: #f1f5f9;
+}
+
+.upload-drop-zone.dragover {
+    border-color: #3b82f6;
+    background-color: #eff6ff;
+    transform: scale(1.01);
+}
+
+.drop-zone-content {
+    pointer-events: none; /* 子要素がドラッグイベントを邪魔しないように */
+}
+/* ボタンはクリックできるように */
+.drop-zone-content button {
+    pointer-events: auto;
+    margin-top: 0.5rem;
+}
+
+/* Image Preview Grid */
+.image-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 0.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.preview-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+}
+
+.preview-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.preview-item-name {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Striped Progress Bar Animation */
+.progress-bar-striped {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 1rem 1rem;
+}
+
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    0% {
+        background-position: 1rem 0;
+    }
+    100% {
+        background-position: 0 0;
+    }
+}
+
+/* Template Example */
+.template-example {
+    margin-top: 0.5rem;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease-in-out;
+}
+.x-small {
+    font-size: 0.75rem;
+}
+
+/* Utilities (Bootstrap-like) */
+.d-flex { display: flex !important; }
+.align-items-center { align-items: center !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-2 { margin-bottom: 0.5rem !important; }
+.mb-3 { margin-bottom: 1rem !important; }
+.me-2 { margin-right: 0.5rem !important; }
+.text-secondary { color: #6c757d !important; }
+.fs-5 { font-size: 1.25rem !important; }

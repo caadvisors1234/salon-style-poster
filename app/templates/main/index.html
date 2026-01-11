@@ -19,35 +19,85 @@
                 </span>
             </div>
 
+            <!-- D&D対応ファイルアップロード -->
             <div class="form-group">
-                <label for="style_data_file" class="form-label">スタイル情報ファイル</label>
-                <input
-                    type="file"
-                    id="style_data_file"
-                    name="style_data_file"
-                    class="form-input form-file"
-                    accept=".csv,.xlsx"
-                    required
-                >
-                <span class="form-hint">
-                    CSV または Excel ファイル（.csv, .xlsx）を選択してください
-                </span>
+                <div class="d-flex align-items-center mb-2">
+                    <label class="form-label fw-bold mb-0 me-2">スタイル情報ファイル (CSV/Excel)</label>
+                    <a href="#" class="text-secondary" onclick="toggleTemplateExample(event)" title="テンプレート形式の例を表示"
+                        style="text-decoration: none;">
+                        <i class="bi bi-question-circle-fill fs-5"></i>
+                    </a>
+                </div>
+
+                <div id="template-example" class="template-example hidden mb-3">
+                    <div class="card card-body bg-light p-3">
+                        <p class="mb-2 small">以下のカラムを持つCSVまたはExcelファイルを作成してください。</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered bg-white small mb-0" style="min-width: 800px;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>スタイリスト名</th>
+                                        <th>クーポン名</th>
+                                        <th>コメント</th>
+                                        <th>スタイル名</th>
+                                        <th>カテゴリ</th>
+                                        <th>長さ</th>
+                                        <th>メニュー内容</th>
+                                        <th>ハッシュタグ</th>
+                                        <th>画像名</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>山田 花子</td>
+                                        <td>【新規】...</td>
+                                        <td>春らしい...</td>
+                                        <td>春のふんわりボブ</td>
+                                        <td>レディース</td>
+                                        <td>ミディアム</td>
+                                        <td>カット+カラー</td>
+                                        <td>春髪, ボブ</td>
+                                        <td>spring_bob.jpg</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="mt-2 mb-0 x-small text-muted">※ 「画像名」はアップロードするファイル名と完全に一致させてください。</p>
+                    </div>
+                </div>
+
+                <div id="drop-zone-data" class="upload-drop-zone">
+                    <div class="drop-zone-content">
+                        <i class="bi bi-file-earmark-spreadsheet fs-1 text-muted mb-2"></i>
+                        <p class="mb-1">ファイルをここにドラッグ＆ドロップ</p>
+                        <p class="text-muted small">または</p>
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                            onclick="document.getElementById('style_data_file').click()">ファイルを選択</button>
+                    </div>
+                    <!-- inputは非表示にするが、フォーム送信で必要 -->
+                    <input class="form-control d-none" type="file" id="style_data_file" name="style_data_file"
+                        accept=".csv, .xlsx" required style="display:none;">
+                    <div id="file-name-data" class="mt-2 text-primary fw-bold small"></div>
+                </div>
+
+                <span class="form-hint">テンプレート形式に沿ったファイル（.csv, .xlsx）を選択してください。</span>
             </div>
 
             <div class="form-group">
-                <label for="image_files" class="form-label">画像ファイル</label>
-                <input
-                    type="file"
-                    id="image_files"
-                    name="image_files"
-                    class="form-input form-file"
-                    accept="image/*"
-                    multiple
-                    required
-                >
-                <span class="form-hint">
-                    スタイル情報ファイルで指定した画像をすべて選択してください
-                </span>
+                <label class="form-label fw-bold">スタイル画像 (複数選択可)</label>
+                <div id="drop-zone-images" class="upload-drop-zone">
+                    <div class="drop-zone-content">
+                        <i class="bi bi-images fs-1 text-muted mb-2"></i>
+                        <p class="mb-1">画像ファイルをここにドラッグ＆ドロップ</p>
+                        <p class="text-muted small">または</p>
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                            onclick="document.getElementById('image_files').click()">ファイルを選択</button>
+                    </div>
+                    <input class="form-control d-none" type="file" id="image_files" name="image_files" accept="image/*"
+                        multiple required style="display:none;">
+                </div>
+                <div id="preview-area-images" class="image-preview-grid mt-3"></div>
+                <span class="form-hint">スタイルデータ内の「画像名」と一致するファイルを選択してください。</span>
             </div>
 
             <div class="btn-group">
@@ -62,7 +112,8 @@
     <div id="task-progress-section" class="hidden">
         <div class="progress-container">
             <div class="progress-bar-wrapper">
-                <div id="progress-bar" class="progress-bar" style="width: 0%">
+                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                    style="width: 0%">
                     <span id="progress-text">0%</span>
                 </div>
             </div>
@@ -87,7 +138,8 @@
         <div id="error-summary-progress" class="error-summary hidden">
             <div class="error-summary-header">
                 <span class="error-summary-icon">⚠️</span>
-                <span class="error-summary-text">エラー発生中: <span id="error-count-progress" class="error-count">0</span>件</span>
+                <span class="error-summary-text">エラー発生中: <span id="error-count-progress"
+                        class="error-count">0</span>件</span>
             </div>
         </div>
 
@@ -137,7 +189,8 @@
             <div class="error-summary mb-2">
                 <div class="error-summary-header">
                     <span class="error-summary-icon">⚠️</span>
-                    <span class="error-summary-text">合計 <span id="error-count-result" class="error-count">0</span>件のエラー</span>
+                    <span class="error-summary-text">合計 <span id="error-count-result"
+                            class="error-count">0</span>件のエラー</span>
                 </div>
             </div>
 
@@ -232,6 +285,10 @@
             await requestNotificationPermission();
             await loadSettings();
             await checkTaskStatus();
+
+            // D&D Setup
+            setupDragAndDrop('drop-zone-data', 'style_data_file', 'file-name-data', false);
+            setupDragAndDrop('drop-zone-images', 'image_files', 'preview-area-images', true);
         } catch (error) {
             console.error('Initialization error:', error);
             showAlert(error.message, 'danger');
@@ -613,9 +670,133 @@
             await apiCall('/api/v1/tasks/finished-task', { method: 'DELETE' });
             showFormSection();
             document.getElementById('task-form').reset();
+            // プレビューもリセット
+            document.getElementById('file-name-data').textContent = '';
+            document.getElementById('preview-area-images').innerHTML = '';
         } catch (error) {
             showAlert(error.message, 'danger');
         }
     });
+
+    // --- Drag & Drop Utils ---
+    function setupDragAndDrop(dropZoneId, inputId, previewId, isMultiple) {
+        const dropZone = document.getElementById(dropZoneId);
+        const input = document.getElementById(inputId);
+        if (!dropZone || !input) return;
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        // Highlight drop zone when item is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        // Handle dropped files
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        // Handle file selection via input
+        input.addEventListener('change', function () {
+            handleFiles(this.files);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function highlight(e) {
+            dropZone.classList.add('dragover');
+        }
+
+        function unhighlight(e) {
+            dropZone.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            if (files.length > 0) {
+                const dataTransfer = new DataTransfer();
+                if (isMultiple) {
+                    // 複数選択の場合、既存の選択済みファイルに追加するロジックも考えられるが、
+                    // ここではシンプルに新規セット（置換）する動作とする
+                    // 既存ファイルに追加したい場合は input.files を読み込んで結合する必要があるが、
+                    // input.files は読み取り専用のため DataTransfer を再構築する必要がある
+                    Array.from(files).forEach(file => dataTransfer.items.add(file));
+                } else {
+                    dataTransfer.items.add(files[0]);
+                }
+
+                // input.files にセット
+                input.files = dataTransfer.files;
+
+                // プレビュー更新
+                handleFiles(files);
+            }
+        }
+
+        function handleFiles(files) {
+            const previewArea = document.getElementById(previewId);
+            previewArea.innerHTML = '';
+
+            if (!files || files.length === 0) return;
+
+            if (isMultiple) {
+                // 画像プレビュー
+                let imageCount = 0;
+                Array.from(files).forEach(file => {
+                    if (file.type.startsWith('image/')) {
+                        imageCount++;
+                        // パフォーマンスのため、大量のファイルのプレビューは制限するか、軽量化する
+                        // ここではシンプルに実装
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onloadend = function () {
+                            const div = document.createElement('div');
+                            div.className = 'preview-item';
+                            div.innerHTML = `
+                                      <img src="${reader.result}" alt="${file.name}">
+                                      <div class="preview-item-name">${file.name}</div>
+                                 `;
+                            previewArea.appendChild(div);
+                        }
+                    }
+                });
+                if (imageCount === 0 && files.length > 0) {
+                    previewArea.textContent = `${files.length}個のファイルを選択中（画像なし）`;
+                }
+            } else {
+                // 単一ファイル（データファイル）
+                if (files.length > 0) {
+                    const file = files[0];
+                    previewArea.textContent = `選択中: ${file.name} (${formatBytes(file.size)})`;
+                }
+            }
+        }
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function toggleTemplateExample(e) {
+        e.preventDefault();
+        const example = document.getElementById('template-example');
+        example.classList.toggle('hidden');
+    }
 </script>
 {% endblock %}
