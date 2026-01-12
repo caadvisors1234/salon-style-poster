@@ -39,7 +39,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 class="modal-title" id="modal-title">新規設定を追加</h3>
-            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <button class="modal-close">&times;</button>
         </div>
         <div class="modal-body">
             <form id="setting-form">
@@ -47,27 +47,15 @@
 
                 <div class="form-group">
                     <label for="setting_name" class="form-label">設定名</label>
-                    <input
-                        type="text"
-                        id="setting_name"
-                        name="setting_name"
-                        class="form-input"
-                        required
-                        placeholder="例: メイン店舗設定"
-                    >
+                    <input type="text" id="setting_name" name="setting_name" class="form-input" required
+                        placeholder="例: メイン店舗設定">
                     <span class="form-hint">この設定を識別する名前を入力してください</span>
                 </div>
 
                 <div class="form-group">
                     <label for="sb_user_id" class="form-label">SALON BOARD ユーザーID</label>
-                    <input
-                        type="text"
-                        id="sb_user_id"
-                        name="sb_user_id"
-                        class="form-input"
-                        required
-                        placeholder="例: CB1234"
-                    >
+                    <input type="text" id="sb_user_id" name="sb_user_id" class="form-input" required
+                        placeholder="例: CB1234">
                     <span class="form-hint">
                         「C」で始まる2文字の英字＋4桁の数字（例: CB1234）を入力してください
                     </span>
@@ -75,13 +63,8 @@
 
                 <div class="form-group">
                     <label for="sb_password" class="form-label">SALON BOARD パスワード</label>
-                    <input
-                        type="password"
-                        id="sb_password"
-                        name="sb_password"
-                        class="form-input"
-                        placeholder="パスワードを入力"
-                    >
+                    <input type="password" id="sb_password" name="sb_password" class="form-input"
+                        placeholder="パスワードを入力">
                     <span class="form-hint">
                         編集時は空欄のままにすると既存のパスワードを保持します
                     </span>
@@ -89,13 +72,7 @@
 
                 <div class="form-group">
                     <label for="salon_id" class="form-label">サロンID（複数店舗の場合は必ず設定してください。）</label>
-                    <input
-                        type="text"
-                        id="salon_id"
-                        name="salon_id"
-                        class="form-input"
-                        placeholder="例: H123456789"
-                    >
+                    <input type="text" id="salon_id" name="salon_id" class="form-input" placeholder="例: H123456789">
                     <span class="form-hint">
                         HotPepperBeautyのURL末尾のID（「H」＋9桁の数字）を入力してください
                         <br>例: https://beauty.hotpepper.jp/slnH123456789 → H123456789 を入力
@@ -103,13 +80,8 @@
 
                 <div class="form-group">
                     <label for="salon_name" class="form-label">サロン名（任意）</label>
-                    <input
-                        type="text"
-                        id="salon_name"
-                        name="salon_name"
-                        class="form-input"
-                        placeholder="例: SALON BOARD STYLE 渋谷店"
-                    >
+                    <input type="text" id="salon_name" name="salon_name" class="form-input"
+                        placeholder="例: SALON BOARD STYLE 渋谷店">
                     <span class="form-hint">
                         HotPepperBeautyに表示される正式なサロン名を入力してください
                     </span>
@@ -117,10 +89,10 @@
             </form>
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">
+            <button type="button" class="btn btn-secondary">
                 キャンセル
             </button>
-            <button type="button" class="btn btn-primary" onclick="submitSetting()">
+            <button type="button" class="btn btn-primary">
                 保存
             </button>
         </div>
@@ -129,178 +101,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-    let currentUser = null;
-    let editingSettingId = null;
-
-    // ページロード時の初期化
-    document.addEventListener('DOMContentLoaded', async () => {
-        try {
-            currentUser = await apiCall('/api/v1/auth/me');
-            await loadSettings();
-        } catch (error) {
-            console.error('Initialization error:', error);
-            showAlert(error.message, 'danger');
-        }
-    });
-
-    // 設定読み込み
-    async function loadSettings() {
-        try {
-            const data = await apiCall('/api/v1/sb-settings/');
-            const settings = data.settings || [];
-            const tbody = document.getElementById('settings-tbody');
-            const noSettings = document.getElementById('no-settings');
-
-            tbody.innerHTML = '';
-
-            if (settings.length === 0) {
-                noSettings.classList.remove('hidden');
-                return;
-            }
-
-            noSettings.classList.add('hidden');
-
-            settings.forEach(setting => {
-                const tr = document.createElement('tr');
-
-                const salonInfo = setting.salon_id || setting.salon_name
-                    ? `ID: ${setting.salon_id || '-'}, 名前: ${setting.salon_name || '-'}`
-                    : '-';
-
-                tr.innerHTML = `
-                    <td>${setting.setting_name}</td>
-                    <td>${setting.sb_user_id}</td>
-                    <td>${salonInfo}</td>
-                    <td>
-                        <button class="btn btn-secondary" onclick="editSetting(${setting.id})">
-                            編集
-                        </button>
-                        <button class="btn btn-danger" onclick="deleteSetting(${setting.id}, '${setting.setting_name}')">
-                            削除
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        } catch (error) {
-            console.error('Failed to load settings:', error);
-            showAlert(error.message, 'danger');
-        }
-    }
-
-    // 新規設定追加ボタン
-    document.getElementById('add-setting-btn').addEventListener('click', () => {
-        editingSettingId = null;
-        document.getElementById('modal-title').textContent = '新規設定を追加';
-        document.getElementById('setting-form').reset();
-        document.getElementById('setting-id').value = '';
-        // 新規追加時はパスワード必須
-        document.getElementById('sb_password').required = true;
-        openModal();
-    });
-
-    // 設定編集
-    async function editSetting(settingId) {
-        try {
-            const setting = await apiCall(`/api/v1/sb-settings/${settingId}`);
-            editingSettingId = settingId;
-
-            document.getElementById('modal-title').textContent = '設定を編集';
-            document.getElementById('setting-id').value = setting.id;
-            document.getElementById('setting_name').value = setting.setting_name;
-            document.getElementById('sb_user_id').value = setting.sb_user_id;
-            document.getElementById('salon_id').value = setting.salon_id || '';
-            document.getElementById('salon_name').value = setting.salon_name || '';
-            // 編集時はパスワード任意
-            document.getElementById('sb_password').value = '';
-            document.getElementById('sb_password').required = false;
-
-            openModal();
-        } catch (error) {
-            showAlert(error.message, 'danger');
-        }
-    }
-
-    // 設定削除
-    async function deleteSetting(settingId, settingName) {
-        if (!confirm(`「${settingName}」を削除してもよろしいですか？`)) {
-            return;
-        }
-
-        try {
-            await apiCall(`/api/v1/sb-settings/${settingId}`, { method: 'DELETE' });
-            showAlert('設定を削除しました', 'success');
-            await loadSettings();
-        } catch (error) {
-            showAlert(error.message, 'danger');
-        }
-    }
-
-    // 設定保存
-    async function submitSetting() {
-        const form = document.getElementById('setting-form');
-
-        if (!form.checkValidity()) {
-            form.reportValidity();
-            return;
-        }
-
-        const data = {
-            setting_name: document.getElementById('setting_name').value,
-            sb_user_id: document.getElementById('sb_user_id').value,
-            salon_id: document.getElementById('salon_id').value || null,
-            salon_name: document.getElementById('salon_name').value || null
-        };
-
-        const password = document.getElementById('sb_password').value;
-        if (password) {
-            data.sb_password = password;
-        }
-
-        showLoading();
-
-        try {
-            if (editingSettingId) {
-                // 更新
-                await apiCall(`/api/v1/sb-settings/${editingSettingId}`, {
-                    method: 'PUT',
-                    body: JSON.stringify(data)
-                });
-                showAlert('設定を更新しました', 'success');
-            } else {
-                // 新規作成
-                await apiCall('/api/v1/sb-settings/', {
-                    method: 'POST',
-                    body: JSON.stringify(data)
-                });
-                showAlert('設定を追加しました', 'success');
-            }
-
-            hideLoading();
-            closeModal();
-            await loadSettings();
-        } catch (error) {
-            hideLoading();
-            showAlert(error.message, 'danger');
-        }
-    }
-
-    // モーダル開く
-    function openModal() {
-        document.getElementById('setting-modal').classList.add('active');
-    }
-
-    // モーダル閉じる
-    function closeModal() {
-        document.getElementById('setting-modal').classList.remove('active');
-    }
-
-    // モーダル外クリックで閉じる
-    document.getElementById('setting-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'setting-modal') {
-            closeModal();
-        }
-    });
-</script>
+<script type="module" src="{{ url_for('static', path='/js/pages/settings.js') }}"></script>
 {% endblock %}
