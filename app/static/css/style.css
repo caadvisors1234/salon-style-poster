@@ -3,77 +3,113 @@
     /* --- Color Palette: Monochrome & Functional --- */
     /* Base - UIの90%を構成 */
     --white: #FFFFFF;
-    --gray-50: #F9FAFB;   /* 背景用: 極めて薄いグレー */
-    --gray-100: #F3F4F6;  /* 二次背景: 薄いグレー */
-    --gray-200: #E5E7EB;  /* 境界線（必要最小限） */
-    --gray-300: #D1D5DB;  /* 無効状態など */
+    --gray-50: #F9FAFB;
+    /* 背景用: 極めて薄いグレー */
+    --gray-100: #F3F4F6;
+    /* 二次背景: 薄いグレー */
+    --gray-200: #E5E7EB;
+    /* 境界線（必要最小限） */
+    --gray-300: #D1D5DB;
+    /* 無効状態など */
     --gray-400: #9CA3AF;
-    --gray-500: #6B7280;  /* セカンダリテキスト */
+    --gray-500: #6B7280;
+    /* セカンダリテキスト */
     --gray-600: #4B5563;
     --gray-700: #374151;
-    --gray-800: #1F2937;  /* メインテキスト */
-    --gray-900: #111827;  /* 見出し */
+    --gray-800: #1F2937;
+    /* メインテキスト */
+    --gray-900: #111827;
+    /* 見出し */
 
     /* Functional Colors - アクションと状態のみ */
-    --brand-color: #DB2777;        /* Action: Pink-600 */
-    --brand-color-hover: #BE185D;  /* Pink-700 */
-    --brand-color-subtle: #FDF2F8; /* Pink-50 (背景用) */
-    
-    --success-color: #059669;      /* Emerald-600 */
-    --success-bg: #ECFDF5;         /* Emerald-50 */
-    
-    --danger-color: #DC2626;       /* Red-600 */
-    --danger-bg: #FEF2F2;          /* Red-50 */
-    
-    --warning-color: #D97706;      /* Amber-600 */
-    --warning-bg: #FFFBEB;         /* Amber-50 */
+    --brand-color: #DB2777;
+    /* Action: Pink-600 */
+    --brand-color-hover: #BE185D;
+    /* Pink-700 */
+    --brand-color-subtle: #FDF2F8;
+    /* Pink-50 (背景用) */
+
+    --success-color: #059669;
+    /* Emerald-600 */
+    --success-bg: #ECFDF5;
+    /* Emerald-50 */
+
+    --danger-color: #DC2626;
+    /* Red-600 */
+    --danger-bg: #FEF2F2;
+    /* Red-50 */
+
+    --warning-color: #D97706;
+    /* Amber-600 */
+    --warning-bg: #FFFBEB;
+    /* Amber-50 */
 
     /* --- Typography --- */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    
+
     /* Scale: 4段階 + Caption */
-    --text-caption: 0.75rem;   /* 12px */
-    --text-sm: 0.875rem;       /* 14px */
-    --text-base: 1rem;         /* 16px */
-    --text-lg: 1.25rem;        /* 20px */
-    --text-xl: 1.875rem;       /* 30px - Page Titles */
+    --text-caption: 0.75rem;
+    /* 12px */
+    --text-sm: 0.875rem;
+    /* 14px */
+    --text-base: 1rem;
+    /* 16px */
+    --text-lg: 1.25rem;
+    /* 20px */
+    --text-xl: 1.875rem;
+    /* 30px - Page Titles */
 
     --weight-regular: 400;
     --weight-medium: 500;
-    --weight-bold: 600;        /* 太すぎないボールド */
+    --weight-bold: 600;
+    /* 太すぎないボールド */
 
     --leading-tight: 1.25;
-    --leading-normal: 1.6;     /* 本文用: 可読性最大化 */
+    --leading-normal: 1.6;
+    /* 本文用: 可読性最大化 */
 
     /* --- Spacing: "呼吸する余白" --- */
-    --space-1: 0.25rem;  /* 4px */
-    --space-2: 0.5rem;   /* 8px */
-    --space-3: 0.75rem;  /* 12px */
-    --space-4: 1rem;     /* 16px */
-    --space-6: 1.5rem;   /* 24px */
-    --space-8: 2rem;     /* 32px */
-    --space-12: 3rem;    /* 48px */
-    --space-16: 4rem;    /* 64px */
+    --space-1: 0.25rem;
+    /* 4px */
+    --space-2: 0.5rem;
+    /* 8px */
+    --space-3: 0.75rem;
+    /* 12px */
+    --space-4: 1rem;
+    /* 16px */
+    --space-6: 1.5rem;
+    /* 24px */
+    --space-8: 2rem;
+    /* 32px */
+    --space-12: 3rem;
+    /* 48px */
+    --space-16: 4rem;
+    /* 64px */
 
     /* --- Effects --- */
     --radius-sm: 0.25rem;
-    --radius-md: 0.5rem;   /* 8px: 標準 */
-    --radius-lg: 0.75rem;  /* 12px: カード */
-    --radius-full: 9999px; /* ピル状の最大丸み */
+    --radius-md: 0.5rem;
+    /* 8px: 標準 */
+    --radius-lg: 0.75rem;
+    /* 12px: カード */
+    --radius-full: 9999px;
+    /* ピル状の最大丸み */
 
     /* "透明性"のあるシャドウ: 境界線代わりの淡い影 */
     --shadow-subtle: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
     --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
     --shadow-dropdown: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
-    
+
     --focus-ring: 0 0 0 2px var(--white), 0 0 0 4px var(--brand-color);
-    
+
     /* Touch Target */
     --touch-min: 44px;
 }
 
 /* --- Reset & Base --- */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
@@ -84,7 +120,8 @@ body {
     font-size: var(--text-base);
     line-height: var(--leading-normal);
     color: var(--gray-800);
-    background-color: var(--gray-50); /* わずかにグレーにして白のカードを浮かび上がらせる */
+    background-color: var(--gray-50);
+    /* わずかにグレーにして白のカードを浮かび上がらせる */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
@@ -98,7 +135,10 @@ a {
     transition: color 0.2s ease;
 }
 
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
     font-family: inherit;
     font-size: inherit;
     line-height: inherit;
@@ -108,7 +148,8 @@ button, input, select, textarea {
 /* --- Layout --- */
 .container {
     width: 100%;
-    max-width: 1024px; /* 視線移動を抑えるため幅を制限 */
+    max-width: 1024px;
+    /* 視線移動を抑えるため幅を制限 */
     margin: 0 auto;
     padding: 0 var(--space-4);
 }
@@ -129,14 +170,15 @@ button, input, select, textarea {
 .header {
     background-color: var(--white);
     /* ボーダーではなく、ごく薄いシャドウで分離 */
-    box-shadow: var(--shadow-subtle); 
+    box-shadow: var(--shadow-subtle);
     position: sticky;
     top: 0;
     z-index: 50;
 }
 
 .header-content {
-    height: 4rem; /* 64px */
+    height: 4rem;
+    /* 64px */
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -144,7 +186,8 @@ button, input, select, textarea {
 
 @media (min-width: 1024px) {
     .header .container {
-        max-width: 1200px; /* PC表示でヘッダー内の余白を拡張 */
+        max-width: 1200px;
+        /* PC表示でヘッダー内の余白を拡張 */
     }
 }
 
@@ -171,10 +214,12 @@ button, input, select, textarea {
 
 /* Navigation */
 .header-nav {
-    display: none; /* Mobile default: hidden or handled by JS */
+    display: none;
+    /* Mobile default: hidden or handled by JS */
 }
 
 @media (min-width: 768px) {
+
     .header-nav,
     .header-nav.is-open {
         display: flex;
@@ -221,7 +266,7 @@ button, input, select, textarea {
         color: var(--brand-color);
         background-color: var(--brand-color-subtle);
     }
-    
+
     .header-nav.is-open .nav-meta,
     .nav-meta {
         display: flex;
@@ -234,7 +279,7 @@ button, input, select, textarea {
         border-top: none;
         width: auto;
     }
-    
+
     .nav-email {
         font-size: var(--text-caption);
         color: var(--gray-500);
@@ -256,7 +301,9 @@ button, input, select, textarea {
 }
 
 @media (min-width: 768px) {
-    .menu-toggle { display: none; }
+    .menu-toggle {
+        display: none;
+    }
 }
 
 /* Fix: Add Menu Icon Styles */
@@ -291,7 +338,8 @@ button, input, select, textarea {
         box-shadow: var(--shadow-dropdown);
         border-top: 1px solid var(--gray-100);
         gap: var(--space-4);
-        z-index: 40; /* Ensure it's above content */
+        z-index: 40;
+        /* Ensure it's above content */
     }
 }
 
@@ -333,7 +381,8 @@ button, input, select, textarea {
 
 @media (min-width: 768px) {
     .card {
-        padding: var(--space-12); /* 余白を大幅に増やす */
+        padding: var(--space-12);
+        /* 余白を大幅に増やす */
     }
 }
 
@@ -343,7 +392,7 @@ button, input, select, textarea {
     color: var(--gray-900);
     margin-bottom: var(--space-8);
     /* ボーダーラインを削除し、余白で区切りを表現 */
-    border-bottom: none; 
+    border-bottom: none;
     padding-bottom: 0;
     letter-spacing: -0.025em;
 }
@@ -361,8 +410,10 @@ button, input, select, textarea {
     cursor: pointer;
     transition: all 0.2s ease;
     min-height: var(--touch-min);
-    border: none; /* フラットデザイン */
-    box-shadow: none; /* 影なし */
+    border: none;
+    /* フラットデザイン */
+    box-shadow: none;
+    /* 影なし */
 }
 
 .btn:focus-visible {
@@ -386,7 +437,7 @@ button, input, select, textarea {
     background-color: transparent;
     color: var(--gray-600);
     /* ボーダーではなく背景色で表現する場合もありだが、ここでは控えめなボーダーを使用 */
-    border: 1px solid var(--gray-200); 
+    border: 1px solid var(--gray-200);
 }
 
 .btn-secondary:hover {
@@ -402,7 +453,8 @@ button, input, select, textarea {
 }
 
 .btn-danger:hover {
-    background-color: #FEE2E2; /* Red-100 */
+    background-color: #FEE2E2;
+    /* Red-100 */
 }
 
 .btn-group {
@@ -415,13 +467,15 @@ button, input, select, textarea {
 @media (min-width: 768px) {
     .btn-group {
         flex-direction: row;
-        justify-content: flex-start; /* 左揃えで視線の流れを止めない */
+        justify-content: flex-start;
+        /* 左揃えで視線の流れを止めない */
     }
 }
 
 /* --- Forms: Clean & Minimal --- */
 .form-group {
-    margin-bottom: var(--space-8); /* 余白を広く */
+    margin-bottom: var(--space-8);
+    /* 余白を広く */
 }
 
 .form-label {
@@ -441,7 +495,8 @@ button, input, select, textarea {
     font-size: var(--text-base);
     color: var(--gray-900);
     background-color: var(--white);
-    border: 1px solid var(--gray-200); /* 薄いボーダー */
+    border: 1px solid var(--gray-200);
+    /* 薄いボーダー */
     border-radius: var(--radius-md);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
     appearance: none;
@@ -451,7 +506,8 @@ button, input, select, textarea {
 .form-select:focus {
     outline: none;
     border-color: var(--brand-color);
-    box-shadow: 0 0 0 3px var(--brand-color-subtle); /* 柔らかいグロウ効果 */
+    box-shadow: 0 0 0 3px var(--brand-color-subtle);
+    /* 柔らかいグロウ効果 */
 }
 
 .form-hint {
@@ -489,9 +545,11 @@ button, input, select, textarea {
 
 .progress-bar-wrapper {
     width: 100%;
-    height: 0.5rem; /* 8px - 薄く洗練させる */
+    height: 0.5rem;
+    /* 8px - 薄く洗練させる */
     background-color: var(--gray-100);
-    border-radius: var(--radius-full); /* 丸み */
+    border-radius: var(--radius-full);
+    /* 丸み */
     overflow: hidden;
     margin-bottom: var(--space-4);
 }
@@ -504,7 +562,7 @@ button, input, select, textarea {
 
 /* Progress bar text hidden inside bar, shown below for cleaner look */
 .progress-bar span {
-    display: none; 
+    display: none;
 }
 
 .progress-info {
@@ -521,7 +579,8 @@ button, input, select, textarea {
     border-radius: var(--radius-md);
     padding: var(--space-6);
     margin-top: var(--space-6);
-    border: 1px solid var(--gray-100); /* ほとんど見えない境界 */
+    border: 1px solid var(--gray-100);
+    /* ほとんど見えない境界 */
 }
 
 .progress-detail-header {
@@ -603,7 +662,8 @@ button, input, select, textarea {
 .table td {
     padding: var(--space-4);
     color: var(--gray-800);
-    border-bottom: 1px solid var(--gray-100); /* 行間のみ薄く */
+    border-bottom: 1px solid var(--gray-100);
+    /* 行間のみ薄く */
 }
 
 /* --- Error Report Styles --- */
@@ -650,11 +710,13 @@ button, input, select, textarea {
 
 .error-item-details {
     padding-left: var(--space-4);
-    border-left: 2px solid var(--gray-200); /* インデント線 */
+    border-left: 2px solid var(--gray-200);
+    /* インデント線 */
     margin-left: var(--space-2);
 }
 
-.error-field, .error-reason {
+.error-field,
+.error-reason {
     font-size: var(--text-sm);
     color: var(--gray-600);
     margin-top: var(--space-1);
@@ -687,8 +749,10 @@ button, input, select, textarea {
     position: fixed;
     z-index: 1000;
     inset: 0;
-    background-color: rgba(0, 0, 0, 0.4); /* Dimmed background */
-    backdrop-filter: blur(2px); /* すりガラス効果 */
+    background-color: rgba(0, 0, 0, 0.4);
+    /* Dimmed background */
+    backdrop-filter: blur(2px);
+    /* すりガラス効果 */
 }
 
 .modal.active {
@@ -711,8 +775,15 @@ button, input, select, textarea {
 }
 
 @keyframes modalFadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 .modal-header {
@@ -753,7 +824,7 @@ button, input, select, textarea {
 
 /* Screenshot Modal specifics */
 .screenshot-modal {
-    background-color: rgba(0,0,0,0.8);
+    background-color: rgba(0, 0, 0, 0.8);
 }
 
 .screenshot-modal-content {
@@ -811,15 +882,7 @@ button, input, select, textarea {
     margin-bottom: var(--space-8);
 }
 
-/* --- Utility --- */
-.hidden { display: none !important; }
-.btn-block { display: flex; width: 100%; }
-.text-center { text-align: center; }
-.text-muted { color: var(--gray-500); }
-.mt-1 { margin-top: var(--space-2); }
-.mt-2 { margin-top: var(--space-4); }
-.mb-1 { margin-bottom: var(--space-2); }
-.mb-2 { margin-bottom: var(--space-4); }
+/* --- Utility (Deprecated: See bottom of file for full utility classes) --- */
 
 /* =========================================
    UX Improvements (D&D, Progress)
@@ -849,8 +912,10 @@ button, input, select, textarea {
 }
 
 .drop-zone-content {
-    pointer-events: none; /* 子要素がドラッグイベントを邪魔しないように */
+    pointer-events: none;
+    /* 子要素がドラッグイベントを邪魔しないように */
 }
+
 /* ボタンはクリックできるように */
 .drop-zone-content button {
     pointer-events: auto;
@@ -889,7 +954,7 @@ button, input, select, textarea {
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0, 0, 0, 0.6);
     color: #fff;
     font-size: 10px;
     padding: 2px 4px;
@@ -900,16 +965,14 @@ button, input, select, textarea {
 
 /* Striped Progress Bar Animation */
 .progress-bar-striped {
-    background-image: linear-gradient(
-        45deg,
-        rgba(255, 255, 255, 0.15) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255, 255, 255, 0.15) 50%,
-        rgba(255, 255, 255, 0.15) 75%,
-        transparent 75%,
-        transparent
-    );
+    background-image: linear-gradient(45deg,
+            rgba(255, 255, 255, 0.15) 25%,
+            transparent 25%,
+            transparent 50%,
+            rgba(255, 255, 255, 0.15) 50%,
+            rgba(255, 255, 255, 0.15) 75%,
+            transparent 75%,
+            transparent);
     background-size: 1rem 1rem;
 }
 
@@ -921,6 +984,7 @@ button, input, select, textarea {
     0% {
         background-position: 1rem 0;
     }
+
     100% {
         background-position: 0 0;
     }
@@ -932,16 +996,547 @@ button, input, select, textarea {
     margin-bottom: 1.5rem;
     animation: fadeIn 0.3s ease-in-out;
 }
+
 .x-small {
     font-size: 0.75rem;
 }
 
-/* Utilities (Bootstrap-like) */
-.d-flex { display: flex !important; }
-.align-items-center { align-items: center !important; }
-.mb-0 { margin-bottom: 0 !important; }
-.mb-2 { margin-bottom: 0.5rem !important; }
-.mb-3 { margin-bottom: 1rem !important; }
-.me-2 { margin-right: 0.5rem !important; }
-.text-secondary { color: #6c757d !important; }
-.fs-5 { font-size: 1.25rem !important; }
+/* =========================================
+   Utility Classes (Bootstrap-compatible)
+   ========================================= */
+
+/* --- Display & Layout --- */
+.d-none {
+    display: none !important;
+}
+
+.d-inline {
+    display: inline !important;
+}
+
+.d-inline-block {
+    display: inline-block !important;
+}
+
+.d-block {
+    display: block !important;
+}
+
+.d-flex {
+    display: flex !important;
+}
+
+.d-grid {
+    display: grid !important;
+}
+
+.flex-row {
+    flex-direction: row !important;
+}
+
+.flex-column {
+    flex-direction: column !important;
+}
+
+.flex-wrap {
+    flex-wrap: wrap !important;
+}
+
+.flex-nowrap {
+    flex-wrap: nowrap !important;
+}
+
+.justify-content-start {
+    justify-content: flex-start !important;
+}
+
+.justify-content-end {
+    justify-content: flex-end !important;
+}
+
+.justify-content-center {
+    justify-content: center !important;
+}
+
+.justify-content-between {
+    justify-content: space-between !important;
+}
+
+.justify-content-around {
+    justify-content: space-around !important;
+}
+
+.align-items-start {
+    align-items: flex-start !important;
+}
+
+.align-items-end {
+    align-items: flex-end !important;
+}
+
+.align-items-center {
+    align-items: center !important;
+}
+
+.align-items-stretch {
+    align-items: stretch !important;
+}
+
+.w-100 {
+    width: 100% !important;
+}
+
+.h-100 {
+    height: 100% !important;
+}
+
+/* --- Spacing --- */
+/* Margin */
+.m-0 {
+    margin: 0 !important;
+}
+
+.mt-0 {
+    margin-top: 0 !important;
+}
+
+.mb-0 {
+    margin-bottom: 0 !important;
+}
+
+.ms-0,
+.me-0 {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+.m-1 {
+    margin: var(--space-1) !important;
+}
+
+.mt-1 {
+    margin-top: var(--space-1) !important;
+}
+
+.mb-1 {
+    margin-bottom: var(--space-1) !important;
+}
+
+.ms-1 {
+    margin-left: var(--space-1) !important;
+}
+
+.me-1 {
+    margin-right: var(--space-1) !important;
+}
+
+.m-2 {
+    margin: var(--space-2) !important;
+}
+
+.mt-2 {
+    margin-top: var(--space-2) !important;
+}
+
+.mb-2 {
+    margin-bottom: var(--space-2) !important;
+}
+
+.ms-2 {
+    margin-left: var(--space-2) !important;
+}
+
+.me-2 {
+    margin-right: var(--space-2) !important;
+}
+
+.m-3 {
+    margin: var(--space-4) !important;
+}
+
+.mt-3 {
+    margin-top: var(--space-4) !important;
+}
+
+.mb-3 {
+    margin-bottom: var(--space-4) !important;
+}
+
+.ms-3 {
+    margin-left: var(--space-4) !important;
+}
+
+.me-3 {
+    margin-right: var(--space-4) !important;
+}
+
+.m-4 {
+    margin: var(--space-6) !important;
+}
+
+.mt-4 {
+    margin-top: var(--space-6) !important;
+}
+
+.mb-4 {
+    margin-bottom: var(--space-6) !important;
+}
+
+.ms-4 {
+    margin-left: var(--space-6) !important;
+}
+
+.me-4 {
+    margin-right: var(--space-6) !important;
+}
+
+.m-5 {
+    margin: var(--space-8) !important;
+}
+
+.mt-5 {
+    margin-top: var(--space-8) !important;
+}
+
+.mb-5 {
+    margin-bottom: var(--space-8) !important;
+}
+
+.ms-5 {
+    margin-left: var(--space-8) !important;
+}
+
+.me-5 {
+    margin-right: var(--space-8) !important;
+}
+
+.mx-auto {
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Padding */
+.p-0 {
+    padding: 0 !important;
+}
+
+.pt-0 {
+    padding-top: 0 !important;
+}
+
+.pb-0 {
+    padding-bottom: 0 !important;
+}
+
+.ps-0,
+.pe-0 {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+.p-1 {
+    padding: var(--space-1) !important;
+}
+
+.pt-1 {
+    padding-top: var(--space-1) !important;
+}
+
+.pb-1 {
+    padding-bottom: var(--space-1) !important;
+}
+
+.ps-1 {
+    padding-left: var(--space-1) !important;
+}
+
+.pe-1 {
+    padding-right: var(--space-1) !important;
+}
+
+.p-2 {
+    padding: var(--space-2) !important;
+}
+
+.pt-2 {
+    padding-top: var(--space-2) !important;
+}
+
+.pb-2 {
+    padding-bottom: var(--space-2) !important;
+}
+
+.ps-2 {
+    padding-left: var(--space-2) !important;
+}
+
+.pe-2 {
+    padding-right: var(--space-2) !important;
+}
+
+.p-3 {
+    padding: var(--space-4) !important;
+}
+
+.pt-3 {
+    padding-top: var(--space-4) !important;
+}
+
+.pb-3 {
+    padding-bottom: var(--space-4) !important;
+}
+
+.ps-3 {
+    padding-left: var(--space-4) !important;
+}
+
+.pe-3 {
+    padding-right: var(--space-4) !important;
+}
+
+.p-4 {
+    padding: var(--space-6) !important;
+}
+
+.pt-4 {
+    padding-top: var(--space-6) !important;
+}
+
+.pb-4 {
+    padding-bottom: var(--space-6) !important;
+}
+
+.ps-4 {
+    padding-left: var(--space-6) !important;
+}
+
+.pe-4 {
+    padding-right: var(--space-6) !important;
+}
+
+/* Gap */
+.gap-1 {
+    gap: var(--space-1) !important;
+}
+
+.gap-2 {
+    gap: var(--space-2) !important;
+}
+
+.gap-3 {
+    gap: var(--space-4) !important;
+}
+
+.gap-4 {
+    gap: var(--space-6) !important;
+}
+
+/* --- Typography --- */
+.text-start {
+    text-align: left !important;
+}
+
+.text-center {
+    text-align: center !important;
+}
+
+.text-end {
+    text-align: right !important;
+}
+
+.fw-bold {
+    font-weight: var(--weight-bold) !important;
+}
+
+.fw-normal {
+    font-weight: var(--weight-regular) !important;
+}
+
+.fw-light {
+    font-weight: 300 !important;
+}
+
+.fs-1 {
+    font-size: 2.5rem !important;
+}
+
+.fs-2 {
+    font-size: 2rem !important;
+}
+
+.fs-3 {
+    font-size: 1.75rem !important;
+}
+
+.fs-4 {
+    font-size: 1.5rem !important;
+}
+
+.fs-5 {
+    font-size: 1.25rem !important;
+}
+
+.fs-6 {
+    font-size: 1rem !important;
+}
+
+.small,
+small {
+    font-size: var(--text-sm) !important;
+}
+
+/* Text Colors */
+.text-primary {
+    color: var(--brand-color) !important;
+}
+
+.text-secondary {
+    color: var(--gray-500) !important;
+}
+
+.text-success {
+    color: var(--success-color) !important;
+}
+
+.text-danger {
+    color: var(--danger-color) !important;
+}
+
+.text-warning {
+    color: var(--warning-color) !important;
+}
+
+.text-muted {
+    color: var(--gray-400) !important;
+}
+
+.text-white {
+    color: var(--white) !important;
+}
+
+.text-dark {
+    color: var(--gray-900) !important;
+}
+
+/* --- Backgrounds --- */
+.bg-primary {
+    background-color: var(--brand-color) !important;
+    color: var(--white);
+}
+
+.bg-light {
+    background-color: var(--gray-50) !important;
+}
+
+.bg-white {
+    background-color: var(--white) !important;
+}
+
+.bg-success {
+    background-color: var(--success-bg) !important;
+}
+
+.bg-danger {
+    background-color: var(--danger-bg) !important;
+}
+
+.bg-warning {
+    background-color: var(--warning-bg) !important;
+}
+
+/* --- Borders --- */
+.border {
+    border: 1px solid var(--gray-200) !important;
+}
+
+.border-top {
+    border-top: 1px solid var(--gray-200) !important;
+}
+
+.border-bottom {
+    border-bottom: 1px solid var(--gray-200) !important;
+}
+
+.border-0 {
+    border: none !important;
+}
+
+.rounded {
+    border-radius: var(--radius-md) !important;
+}
+
+.rounded-circle {
+    border-radius: 50% !important;
+}
+
+/* --- Components --- */
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 0.35em 0.65em;
+    font-size: 0.75em;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: var(--radius-sm);
+}
+
+.badge-primary {
+    background-color: var(--brand-color);
+    color: var(--white);
+}
+
+.badge-secondary {
+    background-color: var(--gray-200);
+    color: var(--gray-700);
+}
+
+.badge-success {
+    background-color: var(--success-color);
+    color: var(--white);
+}
+
+.badge-danger {
+    background-color: var(--danger-color);
+    color: var(--white);
+}
+
+.badge-warning {
+    background-color: var(--warning-color);
+    color: var(--white);
+}
+
+.badge-info {
+    background-color: var(--gray-500);
+    color: var(--white);
+}
+
+.badge-light {
+    background-color: var(--gray-100);
+    color: var(--gray-700);
+}
+
+/* Tables */
+.table-sm td,
+.table-sm th {
+    padding: var(--space-2) !important;
+}
+
+.table-bordered {
+    border: 1px solid var(--gray-200);
+}
+
+.table-bordered th,
+.table-bordered td {
+    border: 1px solid var(--gray-200);
+}
+
+/* Misc */
+.hidden {
+    display: none !important;
+}
+
+/* Re-declare since it was removed from top */

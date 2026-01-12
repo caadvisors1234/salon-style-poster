@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ログイン - SALON BOARD Style Poster</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
 </head>
+
 <body>
     <div class="login-container">
         <div class="login-card">
@@ -19,28 +21,14 @@
             <form id="login-form">
                 <div class="form-group">
                     <label for="email" class="form-label">メールアドレス</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        class="form-input"
-                        required
-                        autocomplete="email"
-                        placeholder="example@example.com"
-                    >
+                    <input type="email" id="email" name="email" class="form-input" required autocomplete="email"
+                        placeholder="example@example.com">
                 </div>
 
                 <div class="form-group">
                     <label for="password" class="form-label">パスワード</label>
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        class="form-input"
-                        required
-                        autocomplete="current-password"
-                        placeholder="パスワードを入力"
-                    >
+                    <input type="password" id="password" name="password" class="form-input" required
+                        autocomplete="current-password" placeholder="パスワードを入力">
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-block" id="login-btn">
@@ -50,49 +38,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', path='/js/main.js') }}"></script>
-    <script>
-        // 既にログイン済みの場合はメインページにリダイレクト
-        if (getToken()) {
-            window.location.href = '/main';
-        }
-
-        // ログインフォーム処理
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const errorMessageDiv = document.getElementById('error-message');
-            errorMessageDiv.classList.add('hidden');
-            errorMessageDiv.textContent = '';
-
-            const formData = new FormData(e.target);
-            const body = new URLSearchParams();
-            body.append('username', formData.get('email'));
-            body.append('password', formData.get('password'));
-
-            try {
-                const response = await fetch('/api/v1/auth/token', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: body,
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'ログインに失敗しました');
-                }
-
-                const data = await response.json();
-                saveToken(data.access_token);
-                window.location.href = '/main';
-
-            } catch (error) {
-                errorMessageDiv.textContent = error.message;
-                errorMessageDiv.classList.remove('hidden');
-            }
-        });
-    </script>
+    <script type="module" src="{{ url_for('static', path='/js/pages/login.js') }}"></script>
 </body>
+
 </html>
