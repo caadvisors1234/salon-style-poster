@@ -3,24 +3,28 @@ SALON BOARD スタイル自動投稿サービス
 Playwrightを使用したブラウザ自動化
 """
 import logging
-import yaml
-import pandas as pd
-import time
+import os
 import random
+import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
+
+import pandas as pd
+import yaml
 from playwright.sync_api import (
-    sync_playwright,
-    Page,
     Browser,
-    Playwright,
     BrowserContext,
+    Page,
+    Playwright,
     Request,
     Response,
     TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
 )
 from playwright_stealth import stealth_sync
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -81,9 +85,75 @@ class SalonBoardStylePoster:
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
+        self._storage_state_path: Optional[Path] = None
         self.progress_callback: Optional[Callable] = None
         self._last_failed_upload_reason: Optional[str] = None
         self.expected_total: int = 0
+
+    def _init_storage_state_file(self) -> None:
+        """ストレージステート保存先を初期化"""
+        if self._storage_state_path and self._storage_state_path.exists():
+            return
+
+        # 永続化を有効にしている場合は設定された固定パスを利用
+        storage_state_path = Path(getattr(settings, "STORAGE_STATE_PATH", ""))
+        if settings.PERSIST_STORAGE_STATE and storage_state_path:
+            storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+            if not storage_state_path.exists():
+                storage_state_path.touch()
+            self._storage_state_path = storage_state_path
+            return
+
+        # フォールバック: 一時ファイル
+        fd, path = tempfile.mkstemp(prefix="sb_state_", suffix=".json")
+        os.close(fd)
+        self._storage_state_path = Path(path)
+
+    def _persist_storage_state(self) -> None:
+        """現在のセッション状態を保存"""
+        if not (self.context and self._storage_state_path):
+            return
+        try:
+            self.context.storage_state(path=str(self._storage_state_path))
+        except Exception as e:
+            logger.warning("ストレージステート保存に失敗: %s", e)
+
+    def _clear_storage_state(self) -> None:
+        """ストレージステートを破棄"""
+        if self._storage_state_path and self._storage_state_path.exists():
+            try:
+                self._storage_state_path.unlink()
+            except Exception as e:
+                logger.warning("ストレージステート削除に失敗: %s", e)
+        self._storage_state_path = None
+
+    def _create_page(self) -> Page:
+        """セッションを維持した新規ページ生成"""
+        if not self.context:
+            raise Exception("ブラウザコンテキストが初期化されていません")
+        page = self.context.new_page()
+        page.on("requestfailed", self._handle_request_failed)
+        stealth_sync(page)
+        page.set_default_timeout(180000)
+        return page
+
+    def _recreate_page(self) -> Page:
+        """ページ再生成（セッション維持）"""
+        if self.page:
+            try:
+                self.page.close()
+            except Exception:
+                pass
+            finally:
+                self.page = None
+
+        if self.context:
+            self.page = self._create_page()
+            return self.page
+
+        # コンテキストが失われた場合はストレージステートを使って再起動
+        self._start_browser()
+        return self.page
 
     def _emit_progress(
         self,
@@ -133,6 +203,8 @@ class SalonBoardStylePoster:
                 "--disable-extensions",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                "--disable-features=WebRtcHideLocalIpsWithMdns",
             ],
             # 自動化制御のフラグを除外
             "ignore_default_args": ["--enable-automation"],
@@ -150,13 +222,28 @@ class SalonBoardStylePoster:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         )
+
+        self._init_storage_state_file()
+        extra_headers = {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "accept-language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "sec-ch-ua": '"Google Chrome";v="120", "Chromium";v="120", "Not=A?Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "upgrade-insecure-requests": "1",
+        }
         context_kwargs = {
             "viewport": {"width": 1280, "height": 960},
             "user_agent": user_agent,
             "locale": "ja-JP",
             "timezone_id": "Asia/Tokyo",
             "accept_downloads": True,
+            "extra_http_headers": extra_headers,
         }
+
+        if self._storage_state_path and self._storage_state_path.exists() and self._storage_state_path.stat().st_size > 0:
+            context_kwargs["storage_state"] = str(self._storage_state_path)
 
         self.context = self.browser.new_context(**context_kwargs)
         self.context.add_init_script(
@@ -169,16 +256,32 @@ class SalonBoardStylePoster:
             
             // Hardware Concurrencyの偽装（オプション）
             Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
+
+            // WebRTC / IPリーク抑止（必要最低限のスタブ）
+            const denyMedia = () => Promise.reject(new Error('NotAllowedError'));
+            try {
+                if (navigator.mediaDevices) {
+                    navigator.mediaDevices.getUserMedia = denyMedia;
+                } else {
+                    Object.defineProperty(navigator, 'mediaDevices', {get: () => ({ getUserMedia: denyMedia })});
+                }
+            } catch (_) {}
+            const originalRTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+            if (originalRTCPeerConnection) {
+                const Wrapped = function(config) {
+                    const pc = new originalRTCPeerConnection(config);
+                    try { pc.getTransceivers = () => []; } catch (_) {}
+                    return pc;
+                };
+                Wrapped.prototype = originalRTCPeerConnection.prototype;
+                window.RTCPeerConnection = Wrapped;
+                window.webkitRTCPeerConnection = Wrapped;
+            }
             """
         )
 
         # 新しいページ作成
-        self.page = self.context.new_page()
-        self.page.on("requestfailed", self._handle_request_failed)
-        stealth_sync(self.page)
-
-        # デフォルトタイムアウト設定（3分）
-        self.page.set_default_timeout(180000)
+        self.page = self._create_page()
 
         logger.info("ブラウザ起動完了")
 
@@ -195,6 +298,15 @@ class SalonBoardStylePoster:
             self.browser.close()
         if self.playwright:
             self.playwright.stop()
+        if self._storage_state_path and self._storage_state_path.exists():
+            if settings.PERSIST_STORAGE_STATE:
+                logger.info("ストレージステートを保持しました: %s", self._storage_state_path)
+            else:
+                try:
+                    self._storage_state_path.unlink()
+                except Exception:
+                    pass
+                self._storage_state_path = None
         logger.info("ブラウザ終了")
 
     def _take_screenshot(self, prefix: str = "error") -> str:
@@ -510,6 +622,18 @@ class SalonBoardStylePoster:
         if self._check_robot_detection():
             raise Exception("ログインページでロボット認証が検出されました")
 
+        # 既存セッションが有効ならログインをスキップ
+        try:
+            if self._wait_for_dashboard_ready(
+                timeout_ms=8000,
+                header_selector="#headerNavigationBar",
+                dashboard_selector=login_config["dashboard_global_navi"],
+            ):
+                logger.info("既存セッションを再利用しました（storage_state）")
+                return
+        except Exception:
+            pass
+
         # ID/パスワード入力
         self._human_pause()
         self.page.locator(login_config["user_id_input"]).fill(user_id)
@@ -730,8 +854,8 @@ class SalonBoardStylePoster:
                 pass
             self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=350)
 
-            # 強制的にクリック（JavaScriptで実行）
-            logger.info("送信ボタンクリック中（JavaScript実行）...")
+            # ネイティブクリック（hover/scrollを伴う）で送信
+            logger.info("送信ボタンクリック中（ネイティブクリック）...")
             upload_predicate = lambda response: (
                 "/CNB/imgreg/imgUpload/doUpload" in response.url
                 and response.request.method.upper() == "POST"
@@ -743,7 +867,19 @@ class SalonBoardStylePoster:
             
             try:
                 with self.page.expect_response(upload_predicate, timeout=self.TIMEOUT_IMAGE_UPLOAD) as upload_waiter:
-                    submit_button.evaluate("el => el.click()")
+                    try:
+                        submit_button.scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
+                    try:
+                        submit_button.click(timeout=self.TIMEOUT_CLICK)
+                    except Exception:
+                        try:
+                            submit_button.hover(timeout=2000)
+                        except Exception:
+                            pass
+                        self._human_pause(base_ms=500, jitter_ms=200, minimum_ms=250)
+                        submit_button.click(timeout=self.TIMEOUT_CLICK, force=True)
                 upload_response = upload_waiter.value
                 logger.info("画像アップロードレスポンス取得: status=%s, url=%s", upload_response.status, upload_response.url)
             except PlaywrightTimeoutError:
@@ -792,6 +928,8 @@ class SalonBoardStylePoster:
                     "raw_error": manual_upload_reason,
                     "screenshot_path": ""
                 })
+                # 失敗検出時点で後続の完了ログやプレビュー待機を行わず、次工程へ進む
+                return manual_upload_events
 
             self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
 
@@ -1155,8 +1293,23 @@ class SalonBoardStylePoster:
                 }
             )
 
-            # ログイン
-            self.step_login(user_id, password, salon_info)
+            # ログイン（storage_state再利用失敗時は1回だけ再試行）
+            login_retried = False
+            reuse_state = bool(self._storage_state_path and Path(self._storage_state_path).exists())
+            while True:
+                try:
+                    self.step_login(user_id, password, salon_info)
+                    break
+                except Exception as login_error:
+                    if reuse_state and not login_retried:
+                        logger.warning("storage_state再利用に失敗したため再ログインを再試行します: %s", login_error)
+                        self._clear_storage_state()
+                        self._close_browser()
+                        self._start_browser()
+                        login_retried = True
+                        reuse_state = False
+                        continue
+                    raise
             self._emit_progress(
                 0,
                 {
@@ -1168,6 +1321,7 @@ class SalonBoardStylePoster:
                     "total": self.expected_total
                 }
             )
+            self._persist_storage_state()
 
             # データ読み込み
             logger.info("データファイル読み込み: %s", data_filepath)

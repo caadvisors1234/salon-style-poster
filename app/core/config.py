@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     USE_HEADFUL_MODE: bool = True  # ヘッドフルモード（画面あり）を使用するか
+    PERSIST_STORAGE_STATE: bool = True  # storage_state をタスク間で再利用するか
+    STORAGE_STATE_PATH: str = "app/tmp/storage_state.json"  # storage_state の保存先
 
     # データベース設定
     POSTGRES_USER: str
