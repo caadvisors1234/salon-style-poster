@@ -1,0 +1,21 @@
+"""
+SALON BOARD 自動化処理の定数定義
+"""
+
+# タイムアウト定数（ミリ秒）
+TIMEOUT_CLICK = 10000  # クリック操作
+TIMEOUT_LOAD = 30000   # ページ読み込み
+TIMEOUT_IMAGE_UPLOAD = 60000  # 画像アップロード
+TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
+IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
+
+# 待機時間定数（ミリ秒）
+WAIT_SHORT_BASE = 500
+WAIT_MEDIUM_BASE = 700
+WAIT_LONG_BASE = 1000
+WAIT_JITTER_DEFAULT = 100
+WAIT_MIN_DEFAULT = 50
+
+HUMAN_BASE_WAIT_MS = 700  # 人間らしい基本待機（ミリ秒）
+HUMAN_JITTER_MS = 350  # 人間らしい待機のばらつき（ミリ秒）
+HUMAN_MIN_WAIT_MS = 250  # 最小待機時間（ミリ秒）
