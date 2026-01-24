@@ -4,9 +4,12 @@ SALON BOARD フォーム入力Mixin
 """
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from playwright.sync_api import Response, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Response
 
 from .exceptions import StylePostError
 
@@ -92,7 +95,7 @@ class StyleFormHandlerMixin:
                 and response.request.method.upper() == "POST"
             )
 
-            upload_response: Optional[Response] = None
+            upload_response: Optional["Response"] = None
             manual_upload_required = False
             manual_upload_reason = ""
 

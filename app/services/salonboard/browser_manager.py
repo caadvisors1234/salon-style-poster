@@ -1,21 +1,16 @@
 """
 SALON BOARD ブラウザ管理基底クラス
-Playwrightを使用したブラウザ自動化の基盤
+Camoufoxを使用したブラウザ自動化の基盤
 """
 import logging
 import random
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
-from playwright.sync_api import (
-    Browser,
-    BrowserContext,
-    Page,
-    Playwright,
-    Request,
-    sync_playwright,
-)
-from playwright_stealth import stealth_sync
+from camoufox.sync_api import Camoufox
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page, Request
 
 from .constants import (
     TIMEOUT_CLICK,
@@ -80,25 +75,24 @@ class SalonBoardBrowserManager:
         self.slow_mo = slow_mo
 
         self._random = random.Random()
-        self.playwright: Optional[Playwright] = None
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
-        self.page: Optional[Page] = None
+        self._camoufox: Optional[Camoufox] = None
+        self.browser: Optional["Browser"] = None
+        self.context: Optional["BrowserContext"] = None
+        self.page: Optional["Page"] = None
         self.progress_callback: Optional[Callable] = None
         self._last_failed_upload_reason: Optional[str] = None
         self.expected_total: int = 0
 
-    def _create_page(self) -> Page:
+    def _create_page(self) -> "Page":
         """セッションを維持した新規ページ生成"""
         if not self.context:
             raise Exception("ブラウザコンテキストが初期化されていません")
         page = self.context.new_page()
         page.on("requestfailed", self._handle_request_failed)
-        stealth_sync(page)
         page.set_default_timeout(180000)
         return page
 
-    def _recreate_page(self) -> Page:
+    def _recreate_page(self) -> "Page":
         """ページ再生成（セッション維持）"""
         if self.page:
             try:
@@ -116,7 +110,7 @@ class SalonBoardBrowserManager:
         self._start_browser()
         return self.page
 
-    def _handle_request_failed(self, request: Request):
+    def _handle_request_failed(self, request: "Request"):
         """HTTPリクエスト失敗のモニタリング"""
         # request.failure がメソッドの場合とプロパティの場合を考慮
         failure_attr = getattr(request, "failure", None)
@@ -131,97 +125,32 @@ class SalonBoardBrowserManager:
             logger.warning("リクエスト失敗検出: %s", message)
 
     def _start_browser(self):
-        """ブラウザ起動"""
-        self.playwright = sync_playwright().start()
-
-        launch_kwargs = {
-            "headless": self.headless,
-            "slow_mo": self.slow_mo,
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--disable-extensions",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-                "--disable-features=WebRtcHideLocalIpsWithMdns",
-            ],
-            # 自動化制御のフラグを除外
-            "ignore_default_args": ["--enable-automation"],
-        }
-
-        # Chromeチャンネルを優先使用。失敗時はバンドルChromium。
-        try:
-            self.browser = self.playwright.chromium.launch(channel="chrome", **launch_kwargs)
-        except Exception:
-            self.browser = self.playwright.chromium.launch(**launch_kwargs)
-
-        # 固定のWindows User-Agentを使用（指紋の一貫性のため）
-        user_agent = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+        """ブラウザ起動（Camoufox版）"""
+        self._camoufox = Camoufox(
+            headless=self.headless,
+            slow_mo=self.slow_mo,
+            os="windows",
+            locale="ja-JP",
+            humanize=True,
+            block_webrtc=True,
         )
 
-        extra_headers = {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "accept-language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "sec-ch-ua": '"Google Chrome";v="120", "Chromium";v="120", "Not=A?Brand";v="24"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "upgrade-insecure-requests": "1",
-        }
-        context_kwargs = {
-            "viewport": {"width": 1280, "height": 960},
-            "user_agent": user_agent,
-            "locale": "ja-JP",
-            "timezone_id": "Asia/Tokyo",
-            "accept_downloads": True,
-            "extra_http_headers": extra_headers,
-        }
-
-        self.context = self.browser.new_context(**context_kwargs)
-        self.context.add_init_script(
-            """
-            // 自動化フラグの隠蔽
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-
-            // PlatformをWindowsに偽装（Linuxコンテナ対策）
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-
-            // Hardware Concurrencyの偽装（オプション）
-            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
-
-            // WebRTC / IPリーク抑止（必要最低限のスタブ）
-            const denyMedia = () => Promise.reject(new Error('NotAllowedError'));
-            try {
-                if (navigator.mediaDevices) {
-                    navigator.mediaDevices.getUserMedia = denyMedia;
-                } else {
-                    Object.defineProperty(navigator, 'mediaDevices', {get: () => ({ getUserMedia: denyMedia })});
-                }
-            } catch (_) {}
-            const originalRTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-            if (originalRTCPeerConnection) {
-                const Wrapped = function(config) {
-                    const pc = new originalRTCPeerConnection(config);
-                    try { pc.getTransceivers = () => []; } catch (_) {}
-                    return pc;
-                };
-                Wrapped.prototype = originalRTCPeerConnection.prototype;
-                window.RTCPeerConnection = Wrapped;
-                window.webkitRTCPeerConnection = Wrapped;
-            }
-            """
-        )
-
-        # 新しいページ作成
+        self.browser = self._camoufox.start()
+        self.context = self.browser.new_context()
         self.page = self._create_page()
 
-        logger.info("ブラウザ起動完了")
+        logger.info("ブラウザ起動完了（Camoufox）")
 
     def _close_browser(self):
-        """ブラウザ終了"""
+        """ブラウザ終了（Camoufox版）"""
+        if self.page:
+            try:
+                self.page.close()
+            except Exception as e:
+                logger.warning("ページ終了時に警告: %s", e)
+            finally:
+                self.page = None
+
         if self.context:
             try:
                 self.context.close()
@@ -229,8 +158,14 @@ class SalonBoardBrowserManager:
                 logger.warning("ブラウザコンテキスト終了時に警告: %s", e)
             finally:
                 self.context = None
-        if self.browser:
-            self.browser.close()
-        if self.playwright:
-            self.playwright.stop()
-        logger.info("ブラウザ終了")
+
+        if self._camoufox:
+            try:
+                self._camoufox.__exit__(None, None, None)
+            except Exception as e:
+                logger.warning("ブラウザ終了時に警告: %s", e)
+            finally:
+                self._camoufox = None
+                self.browser = None
+
+        logger.info("ブラウザ終了（Camoufox）")

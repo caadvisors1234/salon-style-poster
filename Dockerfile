@@ -44,8 +44,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Playwrightブラウザインストール（Chrome/Firefox）
-RUN playwright install firefox && playwright install chrome
+# Camoufoxのインストールとブラウザ取得
+RUN pip install --no-cache-dir -U "camoufox[geoip]"
+RUN python3 -m camoufox fetch
+
+# キャッシュディレクトリのボリュームマウント（ビルド時間短縮）
+VOLUME /root/.cache/camoufox
 
 # アプリケーションコードをコピー
 COPY . .

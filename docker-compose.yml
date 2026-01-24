@@ -66,6 +66,7 @@ services:
     volumes:
       - .:/app
       - ./logs:/app/logs
+      - camoufox_cache:/root/.cache/camoufox
     env_file:
       - .env
     depends_on:
@@ -105,3 +106,4 @@ networks:
 
 volumes:
   postgres_data:
+  camoufox_cache:

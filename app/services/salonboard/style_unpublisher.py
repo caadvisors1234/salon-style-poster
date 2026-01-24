@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set
 
 import logging
-from playwright.sync_api import Locator, TimeoutError as PlaywrightTimeoutError
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Locator
 
 from .style_poster import SalonBoardStylePoster
 from .exceptions import StylePostError, StyleUnpublishError
