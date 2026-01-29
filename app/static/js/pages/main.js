@@ -59,7 +59,7 @@ async function init() {
 
         // Template Example Toggle - if specific button exists
         // (Note: in index.html, onclick="toggleTemplateExample" might be used. We need to attach listener instead if possible, or expose global)
-        // For module compatibility, it's better to attach listeners if element IDs are known. 
+        // For module compatibility, it's better to attach listeners if element IDs are known.
         // Or export functions and attach to window if we can't change HTML structure easily yet.
         // Assuming there is a toggle button? The snippet showed `function toggleTemplateExample`.
 
@@ -637,7 +637,7 @@ function formatBytes(bytes, decimals = 2) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-// Expose simple toggle function to window if necessary, 
+// Expose simple toggle function to window if necessary,
 // OR better: attach event listener in init()
 // But "Template Example" button logic wasn't fully visible in snippets.
 // Assuming it has an ID, we can do it in init.
