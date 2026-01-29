@@ -119,7 +119,8 @@ class StyleFormHandlerMixin:
             except PlaywrightTimeoutError:
                 reason = self._last_failed_upload_reason or "imgUpload/doUpload のレスポンス待機がタイムアウトしました"
                 manual_upload_reason = reason
-                if "ERR_ABORTED" in reason.upper():
+                # NS_BINDING_ABORTED, ERR_ABORTED などをカバー
+                if "ABORTED" in reason.upper():
                     manual_upload_required = True
 
                 modal_hidden = False

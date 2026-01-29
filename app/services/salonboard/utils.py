@@ -251,21 +251,33 @@ class BrowserUtilsMixin:
 
             preview_ok = False
             src_text = ""
-            bg_image = ""
+            element_class = ""
             try:
                 upload_area = self.page.locator(upload_area_selector)
                 if upload_area.count() > 0:
                     src_text = upload_area.first.get_attribute("src") or ""
-                    try:
-                        bg_image = upload_area.first.evaluate(
-                            "el => (window.getComputedStyle(el).backgroundImage || '')"
-                        ) or ""
-                    except Exception:
-                        bg_image = ""
-                    if src_text and "noimage" not in src_text.lower():
+                    element_class = upload_area.first.get_attribute("class") or ""
+
+                    # SALON BOARDの画像判定:
+                    # - アップロード前: class="imgnewnophoto", src="/CNB/img/styleimageupload.png"
+                    # - アップロード後: class="imgnewphoto", src="/IMGDBHD/..."
+
+                    # 方法1: class属性で判定（最も確実）
+                    if "nophoto" not in element_class.lower() and "photo" in element_class.lower():
                         preview_ok = True
-                    if "url(" in bg_image.lower() and "noimage" not in bg_image.lower():
-                        preview_ok = True
+
+                    # 方法2: src属性で判定（フォールバック）
+                    if not preview_ok and src_text:
+                        # デフォルト画像のパターン
+                        is_default = (
+                            "styleimageupload.png" in src_text or
+                            "/CNB/img/" in src_text
+                        )
+                        # アップロード済み画像のパターン
+                        is_uploaded = "/IMGDBHD/" in src_text
+
+                        if is_uploaded and not is_default:
+                            preview_ok = True
             except Exception:
                 pass
 
