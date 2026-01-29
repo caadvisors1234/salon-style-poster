@@ -124,38 +124,6 @@ class LoginHandlerMixin:
                 screenshot_path=screenshot_path
             )
 
-        # サロン選択ロジック（複数店舗アカウント対応）
-        salon_config = self.selectors.get("salon_selection", {})
-        salon_list_table = salon_config.get("salon_list_table")
-
-        if salon_list_table and self.page.locator(salon_list_table).count() > 0:
-            logger.info("複数店舗アカウント検出 - サロン選択中...")
-            logger.debug("サロン一覧テーブル検出: selector=%s", salon_list_table)
-
-            if not salon_info:
-                raise Exception("複数店舗アカウントですが、salon_infoが指定されていません")
-
-            rows = self.page.locator(salon_config["salon_list_row"]).all()
-            found = False
-            logger.debug("サロン候補行数: %s", len(rows))
-
-            for row in rows:
-                salon_id = row.locator(salon_config["salon_id_cell"]).text_content().strip()
-                salon_name = row.locator(salon_config["salon_name_cell"]).text_content().strip()
-
-                # IDまたは名前で一致確認
-                if (salon_info.get("id") and salon_id == salon_info["id"]) or \
-                   (salon_info.get("name") and salon_name == salon_info["name"]):
-                    logger.info("サロン選択: %s (ID: %s)", salon_name, salon_id)
-                    row.locator("a").first.click()
-                    # サロン選択後はヘッダーを再確認
-                    self.page.wait_for_selector("#headerNavigationBar", timeout=60000, state="visible")
-                    found = True
-                    break
-
-            if not found:
-                raise Exception(f"指定されたサロンが見つかりませんでした: {salon_info}")
-
         # ログイン成功確認（もう一度ダッシュボードセレクタを軽く確認）
         try:
             self.page.wait_for_selector(dashboard_selector, timeout=10000, state="visible")

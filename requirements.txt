@@ -12,7 +12,6 @@ celery==5.3.6
 redis==5.0.1
 
 # Browser Automation
-playwright==1.41.0
 camoufox[geoip]
 
 # Security

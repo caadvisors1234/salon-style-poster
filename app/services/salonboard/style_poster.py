@@ -183,13 +183,34 @@ class SalonBoardStylePoster(
                             event.setdefault("style_name", style_name)
                             event.setdefault("field", "画像アップロード")
                             event.setdefault("error_category", "IMAGE_UPLOAD_ABORTED")
-                            event.setdefault("image_name", image_filename)
+
+                            # 画像関連のエラーの場合のみ image_name を設定
+                            error_category = event.get("error_category", "")
+                            if error_category in ("ACCESS_CONGESTION", "IMAGE_UPLOAD_ABORTED"):
+                                event.setdefault("image_name", image_filename)
+
+                            # error_category に基づいてメッセージを分岐
+                            field_name = event.get("field", "")
+
+                            if error_category == "ACCESS_CONGESTION":
+                                # アクセス集中エラー（混雑）
+                                warning_message = f"{style_name} の画像アップロード機能が混雑しているため、SALON BOARDで手動登録してください"
+                            elif error_category == "IMAGE_UPLOAD_ABORTED":
+                                # 画像アップロードの中断・失敗
+                                warning_message = f"{style_name} の画像アップロードに失敗したため、SALON BOARDで手動登録してください"
+                            elif error_category == "INPUT_FAILED":
+                                # 入力処理のエラー
+                                warning_message = f"{style_name} の{field_name}をSALON BOARDで手動入力してください"
+                            else:
+                                # その他のエラー
+                                warning_message = f"{style_name} の{field_name}で問題が発生しました。SALON BOARDで確認してください"
+
                             self._emit_progress(
                                 index + 1,
                                 {
                                     "stage": "STYLE_WARNING",
                                     "stage_label": "手動対応が必要",
-                                    "message": f"{style_name} の画像をSALON BOARDで手動登録してください",
+                                    "message": warning_message,
                                     "status": "warning",
                                     "current_index": index + 1,
                                     "total": self.expected_total,

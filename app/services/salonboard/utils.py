@@ -288,10 +288,10 @@ class BrowserUtilsMixin:
             now = time.monotonic()
             if now - last_log > 2.5:
                 logger.debug(
-                    "アップロード完了待機中: modal_visible=%s src=%s bg=%s",
+                    "アップロード完了待機中: modal_visible=%s src=%s class=%s",
                     modal_visible,
                     src_text[:120],
-                    bg_image[:120],
+                    element_class[:120],
                 )
                 last_log = now
 

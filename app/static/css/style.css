@@ -597,6 +597,29 @@ textarea {
     color: var(--gray-600);
 }
 
+/* Progress Style Info */
+.progress-stage-label {
+    color: var(--brand-color);
+}
+
+.progress-style-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+}
+
+.progress-style-label {
+    color: var(--gray-500);
+    font-weight: var(--weight-medium);
+}
+
+.progress-style-name {
+    color: var(--gray-900);
+    font-weight: var(--weight-medium);
+}
+
 /* --- Alerts & States --- */
 .alert {
     padding: var(--space-4);
@@ -723,6 +746,12 @@ textarea {
 }
 
 /* Screenshot Thumbnail */
+.error-screenshot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
 .screenshot-thumbnail-container {
     margin-top: var(--space-3);
     border: 1px solid var(--gray-200);
@@ -824,6 +853,12 @@ textarea {
 
 /* Screenshot Modal specifics */
 .screenshot-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background-color: rgba(0, 0, 0, 0.8);
 }
 

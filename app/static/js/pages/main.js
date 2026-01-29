@@ -365,19 +365,47 @@ async function loadErrorReport() {
         const manualCountBadge = document.getElementById('manual-upload-count');
 
         if (errorList) errorList.innerHTML = '';
-        if (errorCountResult) errorCountResult.textContent = report.total_errors;
+        // errorItems.length は後で設定されるため、ここでは0を設定
+        if (errorCountResult) errorCountResult.textContent = '0';
 
+        // エラーをカテゴリ別に分類
+        // 手動対応が必要: INPUT_FAILED, IMAGE_UPLOAD_ABORTED, ACCESS_CONGESTION
+        const manualRequiredCategories = ['INPUT_FAILED', 'IMAGE_UPLOAD_ABORTED', 'ACCESS_CONGESTION'];
+
+        // manual_uploads + errorsから手動対応項目を抽出
+        const manualItems = [];
+        const errorItems = [];
+
+        // manual_uploadsを追加
+        (report.manual_uploads || []).forEach(item => {
+            manualItems.push(item);
+        });
+
+        // errorsから手動対応が必要なものを抽出
+        (report.errors || []).forEach(error => {
+            if (error.error_category && manualRequiredCategories.includes(error.error_category)) {
+                manualItems.push(error);
+            } else {
+                errorItems.push(error);
+            }
+        });
+
+        // エラーカウントを設定（errorItems.length を使用）
+        if (errorCountResult) errorCountResult.textContent = errorItems.length;
+
+        // 手動対応セクションの表示
         if (manualList) manualList.innerHTML = '';
-        const manualUploads = report.manual_uploads || [];
-        if (manualUploads.length > 0) {
+        if (manualItems.length > 0) {
             if (manualSection) manualSection.classList.remove('hidden');
-            if (manualCountBadge) manualCountBadge.textContent = `${manualUploads.length}件`;
-            manualUploads.forEach((item, index) => {
+            if (manualCountBadge) manualCountBadge.textContent = `${manualItems.length}件`;
+            manualItems.forEach((item, index) => {
                 const row = document.createElement('tr');
+                // 対象項目: image_nameがあれば画像名、なければfield
+                const targetItem = item.image_name || item.field || '-';
                 row.innerHTML = `
                     <td>${index + 1}</td>
                     <td>${item.style_name || '-'}</td>
-                    <td>${item.image_name || '-'}</td>
+                    <td>${targetItem}</td>
                     <td>${item.reason || ''}</td>
                 `;
                 if (manualList) manualList.appendChild(row);
@@ -387,17 +415,11 @@ async function loadErrorReport() {
             if (manualCountBadge) manualCountBadge.textContent = '0件';
         }
 
-        const errors = report.errors || [];
-        if (errors.length > 0) {
-            errors.forEach((error, index) => {
+        // エラーレポートセクションの表示（手動対応以外のエラー）
+        if (errorItems.length > 0) {
+            errorItems.forEach((error, index) => {
                 const errorItem = document.createElement('div');
                 errorItem.className = 'error-item';
-
-                // Screenshot modal click handler needs to be global or attached via JS.
-                // Since this is dynamic HTML, we can attach event listener after adding to DOM or use event delegation.
-                // Or simplified: use a data attribute and a global click handler.
-                // For now, I'll attach onclick in HTML but since openScreenshotModal is module-scoped, it won't work from string `onclick="..."`.
-                // FIX: Use delegation or add event listener to the img.
 
                 const screenshotHtml = error.screenshot_url ? `
                     <div class="error-screenshot">
@@ -405,9 +427,12 @@ async function loadErrorReport() {
                         <div class="screenshot-thumbnail-container">
                             <img
                                 src="${error.screenshot_url}"
-                                alt="Error screenshot"
+                                alt="エラーのスクリーンショット（クリックで拡大）"
                                 class="screenshot-thumbnail"
-                                data-url="${error.screenshot_url}" 
+                                data-url="${error.screenshot_url}"
+                                role="button"
+                                tabindex="0"
+                                aria-label="スクリーンショットを拡大表示"
                             >
                             <div class="screenshot-overlay">クリックで拡大</div>
                         </div>
@@ -430,10 +455,17 @@ async function loadErrorReport() {
                         ${screenshotHtml}
                     </div>
                 `;
-                // Add click listener for screenshot
+                // Add click and keyboard listeners for screenshot
                 const img = errorItem.querySelector('.screenshot-thumbnail');
                 if (img) {
-                    img.addEventListener('click', () => openScreenshotModal(error.screenshot_url));
+                    const openModal = () => openScreenshotModal(error.screenshot_url);
+                    img.addEventListener('click', openModal);
+                    img.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openModal();
+                        }
+                    });
                 }
 
                 if (errorList) errorList.appendChild(errorItem);

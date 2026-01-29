@@ -17,6 +17,7 @@ from .constants import (
     TIMEOUT_LOAD,
     TIMEOUT_IMAGE_UPLOAD,
     TIMEOUT_WAIT_ELEMENT,
+    TIMEOUT_PAGE_TRANSITION,
     IMAGE_PROCESSING_WAIT,
     WAIT_SHORT_BASE,
     WAIT_MEDIUM_BASE,
@@ -39,6 +40,7 @@ class SalonBoardBrowserManager:
     TIMEOUT_LOAD = TIMEOUT_LOAD
     TIMEOUT_IMAGE_UPLOAD = TIMEOUT_IMAGE_UPLOAD
     TIMEOUT_WAIT_ELEMENT = TIMEOUT_WAIT_ELEMENT
+    TIMEOUT_PAGE_TRANSITION = TIMEOUT_PAGE_TRANSITION
     IMAGE_PROCESSING_WAIT = IMAGE_PROCESSING_WAIT
 
     # 待機時間定数（ミリ秒）
@@ -135,6 +137,7 @@ class SalonBoardBrowserManager:
             block_webrtc=True,
         )
 
+        # start() メソッドが内部的に __enter__() を呼び出す
         self.browser = self._camoufox.start()
         self.context = self.browser.new_context()
         self.page = self._create_page()

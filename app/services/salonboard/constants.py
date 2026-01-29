@@ -5,8 +5,9 @@ SALON BOARD 自動化処理の定数定義
 # タイムアウト定数（ミリ秒）
 TIMEOUT_CLICK = 10000  # クリック操作
 TIMEOUT_LOAD = 30000   # ページ読み込み
-TIMEOUT_IMAGE_UPLOAD = 60000  # 画像アップロード
+TIMEOUT_IMAGE_UPLOAD = 120000  # 画像アップロード（2分）
 TIMEOUT_WAIT_ELEMENT = 10000  # 要素待機
+TIMEOUT_PAGE_TRANSITION = 30000  # ページ遷移待機
 IMAGE_PROCESSING_WAIT = 3  # 画像処理待機（秒）
 
 # 待機時間定数（ミリ秒）
