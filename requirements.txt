@@ -12,8 +12,7 @@ celery==5.3.6
 redis==5.0.1
 
 # Browser Automation
-playwright==1.41.0
-playwright-stealth==1.0.6
+camoufox[geoip]
 
 # Security
 python-jose[cryptography]==3.3.0

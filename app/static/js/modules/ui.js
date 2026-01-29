@@ -246,29 +246,45 @@ export async function setupHeader(activePage = '') {
 export function openScreenshotModal(imageUrl) {
     const modal = document.createElement('div');
     modal.className = 'screenshot-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'スクリーンショット表示');
     modal.innerHTML = `
         <div class="screenshot-modal-content">
-            <span class="screenshot-modal-close">&times;</span>
-            <img src="${imageUrl}" alt="Screenshot" class="screenshot-modal-image">
+            <span class="screenshot-modal-close" aria-label="閉じる" role="button" tabindex="0">&times;</span>
+            <img src="${imageUrl}" alt="Error screenshot" class="screenshot-modal-image">
         </div>
     `;
 
     document.body.appendChild(modal);
 
+    // モーダルを開いたときはフォーカスを閉じるボタンに移動
     const closeBtn = modal.querySelector('.screenshot-modal-close');
-    closeBtn.onclick = () => {
+    closeBtn.focus();
+
+    const closeModal = () => {
         document.body.removeChild(modal);
+    };
+
+    closeBtn.onclick = closeModal;
+
+    // キーボード操作対応（Enter/Spaceで閉じる）
+    closeBtn.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            closeModal();
+        }
     };
 
     modal.onclick = (e) => {
         if (e.target === modal) {
-            document.body.removeChild(modal);
+            closeModal();
         }
     };
 
     const escHandler = (e) => {
         if (e.key === 'Escape') {
-            document.body.removeChild(modal);
+            closeModal();
             document.removeEventListener('keydown', escHandler);
         }
     };

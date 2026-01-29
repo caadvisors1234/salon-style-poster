@@ -17,10 +17,12 @@ from app.core.config import settings
 from app.core.celery_task import MonitoredTask, TaskCancelledError
 from app.crud import current_task as crud_task, salon_board_setting as crud_setting
 from app.core.security import decrypt_password
-from app.services.style_poster import SalonBoardStylePoster, StylePostError, load_selectors
-from app.services.style_unpublisher import (
+from app.services.salonboard import (
+    SalonBoardStylePoster,
     SalonBoardStyleUnpublisher,
+    StylePostError,
     StyleUnpublishError,
+    load_selectors,
 )
 
 logger = logging.getLogger(__name__)
