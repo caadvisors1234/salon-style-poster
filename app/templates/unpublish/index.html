@@ -19,31 +19,18 @@
             </div>
 
             <div class="form-group">
-                <label for="salon_url" class="form-label">HotPepperBeauty サロンURL</label>
-                <div class="input-row">
-                    <input type="url" id="salon_url" name="salon_url" class="form-input"
-                        placeholder="https://beauty.hotpepper.jp/slnHxxxxxxx/" required>
-                    <button type="button" class="btn btn-secondary" id="fetch-style-count-btn">件数取得</button>
-                </div>
-                <span class="form-hint">
-                    サロンのトップURLを入力して件数取得ボタンを押すと、スタイル数を自動取得します
-                </span>
-                <div class="status-inline" id="style-count-status">
-                    <span id="style-count-display">スタイル数: 未取得</span>
-                </div>
-            </div>
-
-            <div class="form-group">
                 <label for="range_start" class="form-label">非掲載対象の開始番号</label>
                 <input type="number" id="range_start" name="range_start" class="form-input" min="1" required
                     placeholder="例: 9000">
+                <span class="form-hint">
+                    SALON BOARDのスタイル一覧に表示される表示順（番号）を確認してください
+                </span>
             </div>
 
             <div class="form-group">
                 <label for="range_end" class="form-label">非掲載対象の終了番号</label>
                 <input type="number" id="range_end" name="range_end" class="form-input" min="1" required
                     placeholder="例: 9999">
-                <span class="form-hint">スタイル数を取得すると上限が自動で設定されます</span>
             </div>
 
             <div class="form-group">

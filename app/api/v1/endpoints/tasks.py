@@ -13,9 +13,6 @@ import uuid
 from pathlib import Path
 from uuid import UUID
 import pandas as pd
-import httpx
-import re
-from urllib.parse import urlparse
 from slowapi import Limiter
 
 from app.db.session import get_db
@@ -221,7 +218,6 @@ async def create_style_post_task(
 async def create_style_unpublish_task(
     request: Request,
     setting_id: int = Form(...),
-    salon_url: str = Form(...),
     range_start: int = Form(...),
     range_end: int = Form(...),
     exclude_numbers: str = Form("", description="カンマ区切りの除外スタイル番号"),
@@ -301,7 +297,6 @@ async def create_style_unpublish_task(
                 "task_id": str(task_uuid),
                 "user_id": current_user.id,
                 "setting_id": setting_id,
-                "salon_url": salon_url,
                 "range_start": range_start,
                 "range_end": range_end,
                 "exclude_numbers": list(exclude_set),
@@ -321,70 +316,6 @@ async def create_style_unpublish_task(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create unpublish task: {str(e)}",
         )
-
-
-@router.get("/style-count")
-async def get_style_count(
-    salon_url: str,
-    current_user: User = Depends(get_current_user)
-):
-    """
-    HotPepperBeautyのスタイル数をスクレイピングして返す
-    """
-    parsed = urlparse(salon_url)
-    hostname = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"http", "https"} or hostname != "beauty.hotpepper.jp":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid URL. Please provide a HotPepperBeauty salon URL.",
-        )
-    if parsed.username or parsed.password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid URL. Authentication information is not allowed.",
-        )
-
-    style_url = salon_url.rstrip("/") + "/style/"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                style_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
-                    "Accept-Language": "ja,en;q=0.8",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                },
-            )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch style page: {exc}",
-        ) from exc
-
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch style page (status {resp.status_code})",
-        )
-
-    html = resp.text
-    # シンプルパターン
-    match = re.search(r'numberOfResult[^>]*>\s*([\d,]+)\s*<', html, re.IGNORECASE)
-    if not match:
-        # mainContents近傍を最大8000文字までスキャン
-        match = re.search(
-            r'id=["\']mainContents["\'][\s\S]{0,8000}?numberOfResult[^>]*>\s*([\d,]+)\s*<',
-            html,
-            re.IGNORECASE,
-        )
-    if not match:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Could not parse style count from the page.",
-        )
-
-    count = int(match.group(1).replace(",", ""))
-    return {"style_count": count, "style_url": style_url}
 
 
 @router.get("/status", response_model=TaskStatus)
