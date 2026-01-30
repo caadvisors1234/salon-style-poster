@@ -776,11 +776,80 @@ textarea {
     margin-top: var(--space-1);
 }
 
+/* ロボット認証エラーの特別なスタイル */
+.error-item-robot {
+    background-color: var(--warning-bg);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    border: 2px solid var(--warning-color);
+}
+
+.robot-detection-notice {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    background-color: var(--warning-bg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.robot-detection-notice-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.robot-detection-notice-content {
+    flex: 1;
+}
+
+.robot-detection-notice-content strong {
+    color: var(--warning-color);
+    display: block;
+    margin-bottom: var(--space-1);
+}
+
+.robot-detection-notice-content p {
+    color: var(--gray-700);
+    margin: 0;
+    font-size: var(--text-sm);
+}
+
 /* Screenshot Thumbnail */
 .error-screenshot {
     display: flex;
     align-items: center;
     gap: var(--space-3);
+}
+
+/* Success Styles Section */
+#success-styles-section {
+    background-color: var(--success-bg);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+#success-styles-section h3 {
+    color: var(--gray-900);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+}
+
+#success-styles-section .table {
+    background-color: var(--white);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+#success-styles-section .table th {
+    background-color: var(--gray-100);
+    color: var(--gray-700);
+    font-weight: var(--weight-medium);
+}
+
+#success-styles-section .table td {
+    color: var(--gray-800);
 }
 
 .screenshot-thumbnail-container {

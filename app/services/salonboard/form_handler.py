@@ -324,8 +324,16 @@ class StyleFormHandlerMixin:
                             reason = "imgUpload/doUpload のレスポンス待機がタイムアウトしました"
                             manual_upload_reason = reason
                 finally:
-                    # レスポンスリスナーを削除
-                    self.page.remove_listener("response", on_response)
+                    # レスポンスリスナー削除は、追加待機ループ後のレスポンス handling 全体が完了してから行う
+                    # ここでは削除せず、後続の処理で適切なタイミングで削除する
+                    pass
+
+                # ポーリング期間終了後、再度リクエスト失敗をチェック
+                if not manual_upload_required and self._last_failed_upload_reason:
+                    logger.warning("リクエスト失敗を検出（ポーリング期間終了後）: %s", self._last_failed_upload_reason)
+                    manual_upload_reason = self._last_failed_upload_reason
+                    if "ABORTED" in manual_upload_reason.upper():
+                        manual_upload_required = True
 
                 # NS_BINDING_ABORTED 等のリクエスト失敗の場合
                 if manual_upload_required:
@@ -355,6 +363,8 @@ class StyleFormHandlerMixin:
                                 self._human_pause(base_ms=500, jitter_ms=200)
                         except Exception:
                             pass
+                    # リスナーを削除してから早期リターン
+                    self.page.remove_listener("response", on_response)
                     return manual_upload_events
 
                 # 302/3xxステータスの場合、アクセス集中エラーとして処理
@@ -384,6 +394,10 @@ class StyleFormHandlerMixin:
                     # リトライ可能な場合は次のループへ
                     if attempt < self.ACCESS_CONGESTION_MAX_RETRIES:
                         logger.warning("アクセス集中エラーのためリトライします...")
+                        # 数秒待機してからリトライ
+                        wait_seconds = 3
+                        logger.info("サーバー側の負荷軽減のため待機します（%s秒）...", wait_seconds)
+                        time.sleep(wait_seconds)
                         continue
                     else:
                         # リトライ回数超過 - 手動アップロードを促す
@@ -403,10 +417,14 @@ class StyleFormHandlerMixin:
                             "raw_error": error_message,
                             "screenshot_path": ""
                         })
+                        # リスナーを削除してから早期リターン
+                        self.page.remove_listener("response", on_response)
                         return manual_upload_events
 
                 elif upload_response and upload_response.status >= 400:
                     # 4xx/5xxエラー - リトライ不可
+                    # リスナーを削除してから例外
+                    self.page.remove_listener("response", on_response)
                     body_preview = ""
                     try:
                         body_preview = upload_response.text()[:200]
@@ -424,10 +442,143 @@ class StyleFormHandlerMixin:
                     logger.info("画像アップロードが成功しました")
                     break
 
-                # upload_response がない場合もループを抜ける（異常状態）
+                # upload_response がない場合は追加で待機
                 if not upload_response:
-                    logger.warning("アップロードレスポンスが取得できませんでした")
-                    break
+                    logger.warning("アップロードレスポンスが取得できませんでした、追加で待機します...")
+                    # 追加で30秒待機してレスポンスが取得できるか確認
+                    additional_deadline = time.monotonic() + 30.0
+                    additional_poll_interval_ms = 500
+
+                    while time.monotonic() < additional_deadline:
+                        if self._last_failed_upload_reason:
+                            # リクエスト失敗を検出
+                            logger.warning("リクエスト失敗を検出（追加待機中）: %s", self._last_failed_upload_reason)
+                            manual_upload_reason = self._last_failed_upload_reason
+                            if "ABORTED" in manual_upload_reason.upper():
+                                manual_upload_required = True
+                            break
+                        if captured_response:
+                            # レスポンス受信
+                            upload_response = captured_response
+                            logger.info("画像アップロードレスポンス取得（追加待機）: status=%s, url=%s", upload_response.status, upload_response.url)
+                            break
+                        self.page.wait_for_timeout(additional_poll_interval_ms)
+
+                    # 追加待機後にレスポンスが取得できた場合はステータスコードを検証
+                    if upload_response:
+                        # 302/3xxステータスの場合、アクセス集中エラーとして処理
+                        if upload_response.status in (301, 302, 303):
+                            logger.warning("302レスポンスを検出（追加待機後）、アクセス集中エラーとして処理します: status=%s", upload_response.status)
+
+                            # エラーダイアログが表示されていれば閉じる
+                            self._human_pause(base_ms=500, jitter_ms=200, minimum_ms=300)
+                            has_error, error_message = self._check_and_handle_access_congestion_dialog(wait_for_appearance=True)
+
+                            if not has_error:
+                                error_message = "302レスポンス（アクセス集中）"
+
+                            # モーダルを閉じて次のリトライへ
+                            try:
+                                self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
+                            except Exception:
+                                try:
+                                    cancel_button = self.page.locator(f"{form_config['image']['modal_container']} .dispose, {form_config['image']['modal_container']} .close")
+                                    if cancel_button.count() > 0:
+                                        cancel_button.first.click(timeout=3000)
+                                        self._human_pause(base_ms=500, jitter_ms=200)
+                                except Exception:
+                                    pass
+
+                            # リトライ可能な場合は次のループへ
+                            if attempt < self.ACCESS_CONGESTION_MAX_RETRIES:
+                                logger.warning("アクセス集中エラーのためリトライします...")
+                                wait_seconds = 3
+                                logger.info("サーバー側の負荷軽減のため待機します（%s秒）...", wait_seconds)
+                                time.sleep(wait_seconds)
+                                continue
+                            else:
+                                # リトライ回数超過 - 手動アップロードを促す
+                                logger.warning("リトライ回数の上限に達しました")
+                                warning_message = (
+                                    f"画像アップロード機能が混雑しています (image={image_filename})。"
+                                    "SALON BOARDで手動アップロードを実施してください。"
+                                )
+                                logger.warning("%s", warning_message)
+                                manual_upload_events.append({
+                                    "row_number": row_number,
+                                    "style_name": style_name,
+                                    "field": "画像アップロード",
+                                    "reason": warning_message,
+                                    "image_name": image_filename,
+                                    "error_category": "ACCESS_CONGESTION",
+                                    "raw_error": error_message,
+                                    "screenshot_path": ""
+                                })
+                                return manual_upload_events
+
+                        # 4xx/5xxエラー - リトライ不可
+                        if upload_response.status >= 400:
+                            # リスナーを削除してから例外
+                            self.page.remove_listener("response", on_response)
+                            body_preview = ""
+                            try:
+                                body_preview = upload_response.text()[:200]
+                            except Exception:
+                                pass
+                            extra = ""
+                            if self._last_failed_upload_reason:
+                                extra = f", request_failure={self._last_failed_upload_reason}"
+                            raise Exception(
+                                f"画像アップロードAPIが失敗しました (status={upload_response.status}, preview={body_preview}{extra})"
+                            )
+
+                        # 成功の場合 - ループを抜ける
+                        if upload_response.status < 400:
+                            logger.info("画像アップロードが成功しました（追加待機後）")
+                            break
+
+                    # NS_BINDING_ABORTED 等のリクエスト失敗の場合（追加待機後）
+                    if manual_upload_required:
+                        warning_message = (
+                            f"画像アップロードリクエストがブラウザ側で中断されました (image={image_filename})。"
+                            "SALON BOARDで手動アップロードを実施してください。"
+                        )
+                        logger.warning("%s", warning_message)
+                        manual_upload_events.append({
+                            "row_number": row_number,
+                            "style_name": style_name,
+                            "field": "画像アップロード",
+                            "reason": warning_message,
+                            "image_name": image_filename,
+                            "error_category": "IMAGE_UPLOAD_ABORTED",
+                            "raw_error": manual_upload_reason,
+                            "screenshot_path": ""
+                        })
+                        # モーダルを閉じて返す
+                        try:
+                            self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
+                        except Exception:
+                            try:
+                                cancel_button = self.page.locator(f"{form_config['image']['modal_container']} .dispose, {form_config['image']['modal_container']} .close")
+                                if cancel_button.count() > 0:
+                                    cancel_button.first.click(timeout=3000)
+                                    self._human_pause(base_ms=500, jitter_ms=200)
+                            except Exception:
+                                pass
+                    # リスナーを削除してから早期リターン
+                    self.page.remove_listener("response", on_response)
+                    return manual_upload_events
+
+                    # 追加待機後もレスポンスがない場合は例外を送出してリトライ
+                    if not upload_response and not manual_upload_required:
+                        error_msg = "アップロードレスポンスの取得がタイムアウトしました（総計40秒）"
+                        logger.warning("%s", error_msg)
+                        # すべてのレスポンス handling 完了後にリスナーを削除
+                        self.page.remove_listener("response", on_response)
+                        raise Exception(error_msg)
+
+                # すべてのレスポンス handling 完了後にリスナーを削除
+                self.page.remove_listener("response", on_response)
 
             except Exception as e:
                 # ループ内での例外 - リトライ可能な場合は次のループへ
@@ -450,53 +601,28 @@ class StyleFormHandlerMixin:
                     raise StylePostError(f"画像アップロードに失敗しました: {e}", self._take_screenshot("error-image-upload"))
 
         # 成功後の処理（ループ外）
+        # ステータスコードベースで判定済みのため、プレビュー確認は不要
+        logger.info("画像アップロード完了（ステータスコードベースで判定）")
+
+        # 短時間待機してモーダルが閉じるのを待つ
+        self._human_pause(base_ms=1000, jitter_ms=300, minimum_ms=500)
+
+        # モーダルがまだ開いている場合は閉じる
         try:
-            self._human_pause(base_ms=680, jitter_ms=210, minimum_ms=350)
-
-            logger.info("モーダル非表示待機中...")
-            try:
-                self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=self.TIMEOUT_IMAGE_UPLOAD)
-            except PlaywrightTimeoutError as modal_timeout:
+            modal = self.page.locator(form_config["image"]["modal_container"])
+            if modal.count() > 0 and modal.first.is_visible(timeout=1000):
+                logger.debug("モーダルがまだ表示されているため閉じます")
                 try:
-                    self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=1000)
-                    logger.warning("モーダル非表示待機がタイムアウトしましたが既に閉じています。")
-                except PlaywrightTimeoutError:
-                    raise Exception(
-                        f"画像アップロードモーダルが閉じません (timeout={self.TIMEOUT_IMAGE_UPLOAD})"
-                    ) from modal_timeout
+                    cancel_button = self.page.locator(f"{form_config['image']['modal_container']} .dispose, {form_config['image']['modal_container']} .close")
+                    if cancel_button.count() > 0:
+                        cancel_button.first.click(timeout=3000)
+                        self._human_pause(base_ms=500, jitter_ms=200)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-            self._human_pause(base_ms=850, jitter_ms=300, minimum_ms=500)
-
-            # 画像アップロード後のプレビュー確認
-            logger.info("アップロード結果を確認中...")
-            self._wait_for_upload_completion(
-                upload_area_selector=form_config["image"]["upload_area"],
-                modal_selector=form_config["image"]["modal_container"],
-                timeout_ms=self.TIMEOUT_LOAD,
-            )
-            self._human_pause(base_ms=900, jitter_ms=320, minimum_ms=500)
-
-            # エラーダイアログの確認
-            error_dialog_selector = "div.modpopup01.sch.w400.cf.dialog"
-            try:
-                error_dialog = self.page.locator(error_dialog_selector)
-                if error_dialog.count() > 0 and error_dialog.first.is_visible(timeout=1000):
-                    error_message = self.page.locator(f"{error_dialog_selector} .message").inner_text()
-                    logger.warning("エラーダイアログ検出: %s", error_message)
-                    ok_button = self.page.locator(f"{error_dialog_selector} a.accept")
-                    ok_button.click(timeout=5000)
-                    self._human_pause(base_ms=650, jitter_ms=200, minimum_ms=400)
-                    raise Exception(f"画像アップロードエラー: {error_message}")
-            except Exception as dialog_error:
-                if "画像アップロードエラー" in str(dialog_error):
-                    raise
-                pass
-
-            logger.info("画像アップロード完了")
-            return manual_upload_events
-
-        except Exception as e:
-            raise StylePostError(f"画像アップロードに失敗しました: {e}", self._take_screenshot("error-image-upload"))
+        return manual_upload_events
 
     def _select_stylist(
         self,

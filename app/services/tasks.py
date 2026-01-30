@@ -22,6 +22,7 @@ from app.services.salonboard import (
     SalonBoardStyleUnpublisher,
     StylePostError,
     StyleUnpublishError,
+    RobotDetectionError,
     load_selectors,
 )
 
@@ -90,7 +91,8 @@ def process_style_post_task(
             total: int,
             *,
             detail: Optional[Dict[str, Any]] = None,
-            error: Optional[Dict[str, Any]] = None
+            error: Optional[Dict[str, Any]] = None,
+            success: Optional[Dict[str, Any]] = None
         ) -> None:
             """進捗・詳細・エラー情報を更新"""
             nonlocal total_items
@@ -107,13 +109,13 @@ def process_style_post_task(
                 stage_label = detail.pop("stage_label", "")
                 message = detail.pop("message", "")
                 status_text = detail.pop("status", "running")
-                
+
                 # 残りの情報をextraとしてまとめることも可能だが、
                 # record_detailの引数に合わせてマッピングする
                 current_idx = detail.pop("current_index", completed)
                 total_val = detail.pop("total", total_items or total)
                 style_name = detail.pop("style_name", None)
-                
+
                 self.record_detail(
                     task_uuid=task_uuid,
                     stage=stage,
@@ -129,6 +131,16 @@ def process_style_post_task(
             crud_task.update_task_progress(db, task_uuid, completed)
             if error:
                 crud_task.add_task_error(db, task_uuid, error)
+            if success:
+                self.record_success(
+                    task_uuid=task_uuid,
+                    row_number=success.get("row_number", 0),
+                    style_name=success.get("style_name", ""),
+                    image_name=success.get("image_name"),
+                    stylist_name=success.get("stylist_name"),
+                    category=success.get("category"),
+                    length=success.get("length")
+                )
 
         # Poster実行
         poster.run(
@@ -167,7 +179,17 @@ def process_style_post_task(
     except Exception as e:
         # StylePostError独自の情報を抽出
         error_context = None
-        if isinstance(e, StylePostError):
+        if isinstance(e, RobotDetectionError):
+            logger.warning("ロボット認証エラー: %s", e.screenshot_path)
+            error_context = {
+                "row_number": 0,
+                "style_name": "システムエラー",
+                "field": "タスク全体",
+                "reason": str(e),
+                "error_category": "ROBOT_DETECTION",
+                "screenshot_path": e.screenshot_path
+            }
+        elif isinstance(e, StylePostError):
             logger.warning("スクリーンショット: %s", e.screenshot_path)
             error_context = {
                 "row_number": 0,

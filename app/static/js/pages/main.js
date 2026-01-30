@@ -367,9 +367,37 @@ async function loadErrorReport() {
         const manualList = document.getElementById('manual-upload-list');
         const manualCountBadge = document.getElementById('manual-upload-count');
 
+        // 成功スタイルセクション
+        const successSection = document.getElementById('success-styles-section');
+        const successList = document.getElementById('success-styles-list');
+        const successCountBadge = document.getElementById('success-count');
+
         if (errorList) errorList.innerHTML = '';
+        if (successList) successList.innerHTML = '';
         // errorItems.length は後で設定されるため、ここでは0を設定
         if (errorCountResult) errorCountResult.textContent = '0';
+
+        // 成功スタイルの表示
+        const successes = report.successes || [];
+        if (successList) successList.innerHTML = '';
+        if (successes.length > 0) {
+            if (successSection) successSection.classList.remove('hidden');
+            if (successCountBadge) successCountBadge.textContent = `${successes.length}件`;
+            successes.forEach((item, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.row_number || index + 1}</td>
+                    <td>${item.style_name || '-'}</td>
+                    <td>${item.stylist_name || '-'}</td>
+                    <td>${item.category || '-'}</td>
+                    <td>${item.length || '-'}</td>
+                `;
+                if (successList) successList.appendChild(row);
+            });
+        } else {
+            if (successSection) successSection.classList.add('hidden');
+            if (successCountBadge) successCountBadge.textContent = '0件';
+        }
 
         // エラーをカテゴリ別に分類
         // 手動対応が必要: INPUT_FAILED, IMAGE_UPLOAD_ABORTED, ACCESS_CONGESTION
@@ -422,7 +450,9 @@ async function loadErrorReport() {
         if (errorItems.length > 0) {
             errorItems.forEach((error, index) => {
                 const errorItem = document.createElement('div');
-                errorItem.className = 'error-item';
+                // ロボット認証エラーの場合は特別なクラスを追加
+                const isRobotDetection = error.error_category === 'ROBOT_DETECTION';
+                errorItem.className = 'error-item' + (isRobotDetection ? ' error-item-robot' : '');
 
                 const screenshotHtml = error.screenshot_url ? `
                     <div class="error-screenshot">
@@ -442,12 +472,24 @@ async function loadErrorReport() {
                     </div>
                 ` : '';
 
+                // ロボット認証エラーの場合は特別なメッセージを追加
+                const robotDetectionHtml = isRobotDetection ? `
+                    <div class="robot-detection-notice">
+                        <div class="robot-detection-notice-icon">⚠️</div>
+                        <div class="robot-detection-notice-content">
+                            <strong>重要: ロボット認証が検出されました</strong>
+                            <p>しばらく時間をおいてから再度実行してください。</p>
+                        </div>
+                    </div>
+                ` : '';
+
                 errorItem.innerHTML = `
                     <div class="error-item-header">
                         <span class="error-number">エラー ${index + 1}</span>
                         <span class="error-row">行 ${error.row_number}</span>
                         <span class="error-style-name">${error.style_name}</span>
                     </div>
+                    ${robotDetectionHtml}
                     <div class="error-item-details">
                         <div class="error-field">
                             <strong>項目:</strong> ${error.field}

@@ -9,7 +9,7 @@ from typing import Callable, Dict, Optional
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from .exceptions import StylePostError
+from .exceptions import StylePostError, RobotDetectionError
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +59,12 @@ class BrowserUtilsMixin:
         sleep_ms = max(minimum_ms, base_ms + self._random.randint(-jitter_ms, jitter_ms))
         self.page.wait_for_timeout(sleep_ms)
 
-    def _check_robot_detection(self) -> bool:
+    def _check_robot_detection(self) -> None:
         """
         ロボット認証検出
 
-        Returns:
-            bool: ロボット認証が検出された場合True
+        Raises:
+            RobotDetectionError: ロボット認証が検出された場合
         """
         robot_config = self.selectors.get("robot_detection", {})
 
@@ -77,8 +77,10 @@ class BrowserUtilsMixin:
                 try:
                     if locator.first.is_visible(timeout=1000):
                         logger.warning("ロボット認証検出（セレクタ: %s）", selector)
-                        self._take_screenshot("robot-detection")
-                        return True
+                        screenshot_path = self._take_screenshot("robot-detection")
+                        raise RobotDetectionError(screenshot_path=screenshot_path)
+                except RobotDetectionError:
+                    raise
                 except Exception:
                     # タイムアウトや要素が見つからない場合は無視
                     pass
@@ -90,12 +92,12 @@ class BrowserUtilsMixin:
                 try:
                     if locator.first.is_visible(timeout=1000):
                         logger.warning("ロボット認証検出（テキスト: %s）", text)
-                        self._take_screenshot("robot-detection")
-                        return True
+                        screenshot_path = self._take_screenshot("robot-detection")
+                        raise RobotDetectionError(screenshot_path=screenshot_path)
+                except RobotDetectionError:
+                    raise
                 except Exception:
                     pass
-
-        return False
 
     def _emit_progress(
         self,
@@ -103,6 +105,7 @@ class BrowserUtilsMixin:
         detail: Optional[Dict[str, object]] = None,
         *,
         error: Optional[Dict[str, object]] = None,
+        success: Optional[Dict[str, object]] = None,
         total_override: Optional[int] = None
     ) -> None:
         """進捗コールバックを通じて詳細情報を通知"""
@@ -123,14 +126,16 @@ class BrowserUtilsMixin:
                 completed,
                 total_value,
                 detail=payload,
-                error=error
+                error=error,
+                success=success
             )
         else:
             self.progress_callback(
                 completed,
                 total_value,
                 detail=None,
-                error=error
+                error=error,
+                success=success
             )
 
     def _click_and_wait(
@@ -172,8 +177,8 @@ class BrowserUtilsMixin:
         self._human_pause(base_ms=800, jitter_ms=250)
         logger.debug("クリック完了: selector=%s", selector)
 
-        if self._check_robot_detection():
-            raise Exception("ロボット認証が検出されました")
+        # ロボット認証チェック（検出時は例外がスローされる）
+        self._check_robot_detection()
 
     def _wait_for_dashboard_ready(
         self,
@@ -269,22 +274,21 @@ class BrowserUtilsMixin:
                     # - アップロード前: class="imgnewnophoto", src="/CNB/img/styleimageupload.png"
                     # - アップロード後: class="imgnewphoto", src="/IMGDBHD/..."
 
-                    # 方法1: class属性で判定（最も確実）
-                    if "nophoto" not in element_class.lower() and "photo" in element_class.lower():
+                    # 方法1: src属性で判定（最も確実）
+                    # アップロード済み画像のパターン
+                    is_uploaded = "/IMGDBHD/" in src_text
+
+                    # 方法2: class属性で判定（フォールバック）
+                    if not is_uploaded:
+                        has_photo_class = "imgnewphoto" in element_class.lower()
+                        has_nophoto_class = "imgnewnophoto" in element_class.lower()
+                        is_uploaded = has_photo_class and not has_nophoto_class
+
+                    if is_uploaded:
                         preview_ok = True
-
-                    # 方法2: src属性で判定（フォールバック）
-                    if not preview_ok and src_text:
-                        # デフォルト画像のパターン
-                        is_default = (
-                            "styleimageupload.png" in src_text or
-                            "/CNB/img/" in src_text
-                        )
-                        # アップロード済み画像のパターン
-                        is_uploaded = "/IMGDBHD/" in src_text
-
-                        if is_uploaded and not is_default:
-                            preview_ok = True
+                        logger.debug("画像アップロード確認: srcに /IMGDBHD/ が含まれています")
+                    else:
+                        logger.debug("画像未アップロード: src=%s class=%s", src_text[:120], element_class[:120])
             except Exception:
                 pass
 

@@ -72,7 +72,7 @@ class MonitoredTask(Task):
 
         if current_index is not None:
             detail_payload["current_index"] = current_index
-        
+
         # 特定フィールドの設定
         if style_name is not None:
             detail_payload["style_name"] = style_name
@@ -93,6 +93,48 @@ class MonitoredTask(Task):
         except Exception as e:
             # ログ記録のみ行い、タスク自体は止めない
             logger.warning(f"Failed to record task detail: {e}")
+
+    def record_success(
+        self,
+        task_uuid: UUID,
+        row_number: int,
+        style_name: str,
+        image_name: Optional[str] = None,
+        stylist_name: Optional[str] = None,
+        category: Optional[str] = None,
+        length: Optional[str] = None
+    ) -> None:
+        """
+        成功したスタイル情報をDBに保存する共通メソッド
+
+        Args:
+            task_uuid: タスクID
+            row_number: CSVファイルの行番号
+            style_name: スタイル名
+            image_name: 画像ファイル名
+            stylist_name: スタイリスト名
+            category: カテゴリ
+            length: 長さ
+        """
+        success_payload: Dict[str, Any] = {
+            "row_number": row_number,
+            "style_name": style_name
+        }
+
+        if image_name is not None:
+            success_payload["image_name"] = image_name
+        if stylist_name is not None:
+            success_payload["stylist_name"] = stylist_name
+        if category is not None:
+            success_payload["category"] = category
+        if length is not None:
+            success_payload["length"] = length
+
+        try:
+            crud_task.add_task_success(self.db, task_uuid, success_payload)
+        except Exception as e:
+            # ログ記録のみ行い、タスク自体は止めない
+            logger.warning(f"Failed to record task success: {e}")
 
     def ensure_not_cancelled(self, task_uuid: UUID) -> Any:
         """

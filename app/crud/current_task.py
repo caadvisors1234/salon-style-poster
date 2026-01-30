@@ -146,7 +146,10 @@ def add_task_error(db: Session, task_id: UUID, error_info: dict) -> Optional[Cur
     if db_task:
         # 既存のエラー情報を取得
         if db_task.error_info_json:
-            errors = json.loads(db_task.error_info_json)
+            try:
+                errors = json.loads(db_task.error_info_json)
+            except json.JSONDecodeError:
+                errors = []
         else:
             errors = []
 
@@ -177,3 +180,36 @@ def delete_task(db: Session, task_id: UUID) -> bool:
         db.commit()
         return True
     return False
+
+
+def add_task_success(db: Session, task_id: UUID, success_info: dict) -> Optional[CurrentTask]:
+    """
+    タスク成功スタイル情報追加
+
+    Args:
+        db: データベースセッション
+        task_id: タスクID
+        success_info: 成功スタイル情報の辞書
+
+    Returns:
+        Optional[CurrentTask]: 更新されたタスク（存在しない場合はNone）
+    """
+    db_task = get_task_by_id(db, task_id)
+    if db_task:
+        # 既存の成功情報を取得
+        if db_task.success_info_json:
+            try:
+                successes = json.loads(db_task.success_info_json)
+            except json.JSONDecodeError:
+                successes = []
+        else:
+            successes = []
+
+        # 新しい成功情報を追加
+        successes.append(success_info)
+
+        # JSON文字列として保存
+        db_task.success_info_json = json.dumps(successes, ensure_ascii=False)
+        db.commit()
+        db.refresh(db_task)
+    return db_task
