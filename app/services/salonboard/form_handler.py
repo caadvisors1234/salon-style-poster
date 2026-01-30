@@ -498,113 +498,287 @@ class StyleFormHandlerMixin:
         except Exception as e:
             raise StylePostError(f"画像アップロードに失敗しました: {e}", self._take_screenshot("error-image-upload"))
 
-    def _select_stylist(self, stylist_name: str, form_config: Dict):
-        """スタイリスト名選択"""
-        try:
-            logger.info("スタイリスト名選択中...")
-            stylist_select = self.page.locator(form_config["stylist_name_select"])
-            stylist_select.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause()
+    def _select_stylist(
+        self,
+        stylist_name: str,
+        form_config: Dict,
+        manual_events: List[Dict[str, object]],
+        row_number: int,
+        style_name: str
+    ):
+        """スタイリスト名選択（リトライあり、エラー時にスキップ）"""
+        last_error = None
+        for attempt in range(self.INPUT_RETRY_MAX_ATTEMPTS):
+            try:
+                if attempt > 0:
+                    logger.info("スタイリスト名選択をリトライします（%s/%s）...",
+                                attempt, self.INPUT_RETRY_MAX_ATTEMPTS - 1)
+                    self._human_pause(
+                        base_ms=self.INPUT_RETRY_DELAY_MS,
+                        jitter_ms=500,
+                        minimum_ms=1500
+                    )
 
-            stylist_select.select_option(label=stylist_name, timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause(base_ms=750, jitter_ms=240, minimum_ms=400)
-            logger.info("スタイリスト名選択完了")
-        except Exception as e:
-            raise StylePostError(
-                f"スタイリスト名の選択に失敗しました（スタイリスト: {stylist_name}）: {e}",
-                self._take_screenshot("error-stylist-select")
-            )
-
-    def _fill_style_details(self, style_data: Dict, form_config: Dict):
-        """テキスト項目入力"""
-        try:
-            logger.info("テキスト入力中...")
-            self._human_pause()
-            self.page.locator(form_config["stylist_comment_textarea"]).fill(
-                style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT
-            )
-            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
-
-            self.page.locator(form_config["style_name_input"]).fill(
-                style_data["スタイル名"], timeout=self.TIMEOUT_WAIT_ELEMENT
-            )
-            self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
-
-            self.page.locator(form_config["menu_detail_textarea"]).fill(
-                style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT
-            )
-            self._human_pause(base_ms=750, jitter_ms=230, minimum_ms=400)
-            logger.info("テキスト入力完了")
-        except Exception as e:
-            raise StylePostError(f"テキスト入力に失敗しました: {e}", self._take_screenshot("error-text-input"))
-
-    def _select_category_and_length(self, category: str, length: str, form_config: Dict):
-        """カテゴリ/長さ選択"""
-        try:
-            logger.info("カテゴリ/長さ選択中...")
-            if category == "レディース":
+                logger.info("スタイリスト名選択中...")
+                stylist_select = self.page.locator(form_config["stylist_name_select"])
+                stylist_select.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
                 self._human_pause()
-                self.page.locator(form_config["category_ladies_radio"]).click(timeout=self.TIMEOUT_CLICK)
-                self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
-                self.page.locator(form_config["length_select_ladies"]).select_option(
-                    label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
-                )
-            elif category == "メンズ":
+
+                stylist_select.select_option(label=stylist_name, timeout=self.TIMEOUT_WAIT_ELEMENT)
+                self._human_pause(base_ms=750, jitter_ms=240, minimum_ms=400)
+                logger.info("スタイリスト名選択完了")
+                return  # 成功時はリターン
+            except Exception as e:
+                last_error = e
+                logger.warning("スタイリスト名選択でエラー発生（試行 %s/%s）: %s",
+                              attempt + 1, self.INPUT_RETRY_MAX_ATTEMPTS, str(e))
+                if attempt < self.INPUT_RETRY_MAX_ATTEMPTS - 1:
+                    continue
+
+        # リトライ失敗時はスキップ
+        warning_message = f"スタイリスト名の選択に失敗しました（スタイリスト: {stylist_name}）。SALON BOARDで手動入力してください。"
+        logger.warning("%s: %s", warning_message, last_error)
+        manual_events.append({
+            "row_number": row_number,
+            "style_name": style_name,
+            "field": "スタイリスト選択",
+            "reason": warning_message,
+            "error_category": "INPUT_FAILED",
+            "raw_error": str(last_error),
+            "screenshot_path": self._take_screenshot(f"error-stylist-select-{self._sanitize_filename(style_name)}")
+        })
+
+    def _fill_style_details(
+        self,
+        style_data: Dict,
+        form_config: Dict,
+        manual_events: List[Dict[str, object]],
+        row_number: int,
+        style_name: str
+    ):
+        """テキスト項目入力（リトライあり、エラー時にスキップ）"""
+        last_error = None
+        for attempt in range(self.INPUT_RETRY_MAX_ATTEMPTS):
+            try:
+                if attempt > 0:
+                    logger.info("テキスト入力をリトライします（%s/%s）...",
+                                attempt, self.INPUT_RETRY_MAX_ATTEMPTS - 1)
+                    self._human_pause(
+                        base_ms=self.INPUT_RETRY_DELAY_MS,
+                        jitter_ms=500,
+                        minimum_ms=1500
+                    )
+
+                logger.info("テキスト入力中...")
                 self._human_pause()
-                self.page.locator(form_config["category_mens_radio"]).click(timeout=self.TIMEOUT_CLICK)
-                self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
-                self.page.locator(form_config["length_select_mens"]).select_option(
-                    label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
+                self.page.locator(form_config["stylist_comment_textarea"]).fill(
+                    style_data["コメント"], timeout=self.TIMEOUT_WAIT_ELEMENT
                 )
-            self._human_pause(base_ms=750, jitter_ms=220, minimum_ms=400)
-            logger.info("カテゴリ/長さ選択完了")
-        except Exception as e:
-            raise StylePostError(
-                f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {length}）: {e}",
-                self._take_screenshot("error-category-length")
-            )
+                self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
 
-    def _select_coupon(self, coupon_name: str, form_config: Dict):
-        """クーポン選択"""
-        try:
-            logger.info("クーポン選択中...")
-            coupon_config = form_config["coupon"]
-            self._human_pause()
+                self.page.locator(form_config["style_name_input"]).fill(
+                    style_data["スタイル名"], timeout=self.TIMEOUT_WAIT_ELEMENT
+                )
+                self._human_pause(base_ms=650, jitter_ms=220, minimum_ms=400)
 
-            self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
-            self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
+                self.page.locator(form_config["menu_detail_textarea"]).fill(
+                    style_data["メニュー内容"], timeout=self.TIMEOUT_WAIT_ELEMENT
+                )
+                self._human_pause(base_ms=750, jitter_ms=230, minimum_ms=400)
+                logger.info("テキスト入力完了")
+                return  # 成功時はリターン
+            except Exception as e:
+                last_error = e
+                logger.warning("テキスト入力でエラー発生（試行 %s/%s）: %s",
+                              attempt + 1, self.INPUT_RETRY_MAX_ATTEMPTS, str(e))
+                if attempt < self.INPUT_RETRY_MAX_ATTEMPTS - 1:
+                    continue
 
-            coupon_selector = coupon_config["item_label_template"].format(name=coupon_name)
-            self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
-            self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
+        # リトライ失敗時はスキップ
+        warning_message = "テキスト入力に失敗しました。SALON BOARDで手動入力してください。"
+        logger.warning("%s: %s", warning_message, last_error)
+        manual_events.append({
+            "row_number": row_number,
+            "style_name": style_name,
+            "field": "テキスト入力",
+            "reason": warning_message,
+            "error_category": "INPUT_FAILED",
+            "raw_error": str(last_error),
+            "screenshot_path": self._take_screenshot(f"error-text-input-{self._sanitize_filename(style_name)}")
+        })
 
-            self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
-            self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
-            self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
-            logger.info("クーポン選択完了")
-        except Exception as e:
-            raise StylePostError(
-                f"クーポンの選択に失敗しました（クーポン: {coupon_name}）: {e}",
-                self._take_screenshot("error-coupon-select")
-            )
+    def _select_category_and_length(
+        self,
+        category: str,
+        length: str,
+        form_config: Dict,
+        manual_events: List[Dict[str, object]],
+        row_number: int,
+        style_name: str
+    ):
+        """カテゴリ/長さ選択（リトライあり、エラー時にスキップ）"""
+        last_error = None
+        for attempt in range(self.INPUT_RETRY_MAX_ATTEMPTS):
+            try:
+                if attempt > 0:
+                    logger.info("カテゴリ/長さ選択をリトライします（%s/%s）...",
+                                attempt, self.INPUT_RETRY_MAX_ATTEMPTS - 1)
+                    self._human_pause(
+                        base_ms=self.INPUT_RETRY_DELAY_MS,
+                        jitter_ms=500,
+                        minimum_ms=1500
+                    )
 
-    def _input_hashtags(self, hashtags_str: str, form_config: Dict):
-        """ハッシュタグ入力"""
-        try:
-            logger.info("ハッシュタグ入力中...")
-            hashtag_config = form_config["hashtag"]
-            hashtags = hashtags_str.split(",")
+                logger.info("カテゴリ/長さ選択中...")
+                if category == "レディース":
+                    self._human_pause()
+                    self.page.locator(form_config["category_ladies_radio"]).click(timeout=self.TIMEOUT_CLICK)
+                    self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
+                    self.page.locator(form_config["length_select_ladies"]).select_option(
+                        label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
+                    )
+                elif category == "メンズ":
+                    self._human_pause()
+                    self.page.locator(form_config["category_mens_radio"]).click(timeout=self.TIMEOUT_CLICK)
+                    self._human_pause(base_ms=620, jitter_ms=200, minimum_ms=350)
+                    self.page.locator(form_config["length_select_mens"]).select_option(
+                        label=length, timeout=self.TIMEOUT_WAIT_ELEMENT
+                    )
+                self._human_pause(base_ms=750, jitter_ms=220, minimum_ms=400)
+                logger.info("カテゴリ/長さ選択完了")
+                return  # 成功時はリターン
+            except Exception as e:
+                last_error = e
+                logger.warning("カテゴリ/長さ選択でエラー発生（試行 %s/%s）: %s",
+                              attempt + 1, self.INPUT_RETRY_MAX_ATTEMPTS, str(e))
+                if attempt < self.INPUT_RETRY_MAX_ATTEMPTS - 1:
+                    continue
 
-            for tag in hashtags:
-                tag = tag.strip()
-                if tag:
-                    self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
-                    self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
-                    self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)
-            logger.info("ハッシュタグ入力完了")
-        except Exception as e:
-            raise StylePostError(f"ハッシュタグの入力に失敗しました: {e}", self._take_screenshot("error-hashtag"))
+        # リトライ失敗時はスキップ
+        warning_message = f"カテゴリ/長さの選択に失敗しました（カテゴリ: {category}, 長さ: {length}）。SALON BOARDで手動入力してください。"
+        logger.warning("%s: %s", warning_message, last_error)
+        manual_events.append({
+            "row_number": row_number,
+            "style_name": style_name,
+            "field": "カテゴリ/長さ",
+            "reason": warning_message,
+            "error_category": "INPUT_FAILED",
+            "raw_error": str(last_error),
+            "screenshot_path": self._take_screenshot(f"error-category-length-{self._sanitize_filename(style_name)}")
+        })
+
+    def _select_coupon(
+        self,
+        coupon_name: str,
+        form_config: Dict,
+        manual_events: List[Dict[str, object]],
+        row_number: int,
+        style_name: str
+    ):
+        """クーポン選択（リトライあり、エラー時にスキップ）"""
+        last_error = None
+        for attempt in range(self.INPUT_RETRY_MAX_ATTEMPTS):
+            try:
+                if attempt > 0:
+                    logger.info("クーポン選択をリトライします（%s/%s）...",
+                                attempt, self.INPUT_RETRY_MAX_ATTEMPTS - 1)
+                    self._human_pause(
+                        base_ms=self.INPUT_RETRY_DELAY_MS,
+                        jitter_ms=500,
+                        minimum_ms=1500
+                    )
+
+                logger.info("クーポン選択中...")
+                coupon_config = form_config["coupon"]
+                self._human_pause()
+
+                self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
+                self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
+                self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
+
+                coupon_selector = coupon_config["item_label_template"].format(name=coupon_name)
+                self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
+                self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
+
+                self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
+                self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
+                self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
+                logger.info("クーポン選択完了")
+                return  # 成功時はリターン
+            except Exception as e:
+                last_error = e
+                logger.warning("クーポン選択でエラー発生（試行 %s/%s）: %s",
+                              attempt + 1, self.INPUT_RETRY_MAX_ATTEMPTS, str(e))
+                if attempt < self.INPUT_RETRY_MAX_ATTEMPTS - 1:
+                    continue
+
+        # リトライ失敗時はスキップ
+        warning_message = f"クーポンの選択に失敗しました（クーポン: {coupon_name}）。SALON BOARDで手動入力してください。"
+        logger.warning("%s: %s", warning_message, last_error)
+        manual_events.append({
+            "row_number": row_number,
+            "style_name": style_name,
+            "field": "クーポン選択",
+            "reason": warning_message,
+            "error_category": "INPUT_FAILED",
+            "raw_error": str(last_error),
+            "screenshot_path": self._take_screenshot(f"error-coupon-select-{self._sanitize_filename(style_name)}")
+        })
+
+    def _input_hashtags(
+        self,
+        hashtags_str: str,
+        form_config: Dict,
+        manual_events: List[Dict[str, object]],
+        row_number: int,
+        style_name: str
+    ):
+        """ハッシュタグ入力（リトライあり、エラー時にスキップ）"""
+        last_error = None
+        for attempt in range(self.INPUT_RETRY_MAX_ATTEMPTS):
+            try:
+                if attempt > 0:
+                    logger.info("ハッシュタグ入力をリトライします（%s/%s）...",
+                                attempt, self.INPUT_RETRY_MAX_ATTEMPTS - 1)
+                    self._human_pause(
+                        base_ms=self.INPUT_RETRY_DELAY_MS,
+                        jitter_ms=500,
+                        minimum_ms=1500
+                    )
+
+                logger.info("ハッシュタグ入力中...")
+                hashtag_config = form_config["hashtag"]
+                # 区切り文字を改善：半角カンマ、全角カンマ、スペース、改行に対応
+                import re
+                hashtags = re.split(r'[,\s\n、]+', hashtags_str.strip())
+
+                for tag in hashtags:
+                    tag = tag.strip()
+                    if tag:
+                        self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
+                        self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
+                        self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)
+                logger.info("ハッシュタグ入力完了")
+                return  # 成功時はリターン
+            except Exception as e:
+                last_error = e
+                logger.warning("ハッシュタグ入力でエラー発生（試行 %s/%s）: %s",
+                              attempt + 1, self.INPUT_RETRY_MAX_ATTEMPTS, str(e))
+                if attempt < self.INPUT_RETRY_MAX_ATTEMPTS - 1:
+                    continue
+
+        # リトライ失敗時はスキップ
+        warning_message = "ハッシュタグの入力に失敗しました。SALON BOARDで手動入力してください。"
+        logger.warning("%s: %s", warning_message, last_error)
+        manual_events.append({
+            "row_number": row_number,
+            "style_name": style_name,
+            "field": "ハッシュタグ",
+            "reason": warning_message,
+            "error_category": "INPUT_FAILED",
+            "raw_error": str(last_error),
+            "screenshot_path": self._take_screenshot(f"error-hashtag-{self._sanitize_filename(style_name)}")
+        })
 
     def _submit_style_registration(self, form_config: Dict):
         """登録実行"""
@@ -647,6 +821,9 @@ class StyleFormHandlerMixin:
         """
         1件のスタイル処理（リファクタリング版）
         """
+        # 前のスタイル処理での失敗理由をリセット（次のスタイルに影響しないように）
+        self._last_failed_upload_reason = None
+
         row_number = style_data.get("_row_number", 0)
         form_config = self.selectors["style_form"]
         style_name = style_data.get("スタイル名", "不明")
@@ -684,7 +861,7 @@ class StyleFormHandlerMixin:
             image_path, form_config, row_number, style_name
         )
 
-        # 2. スタイリスト選択（リトライ対応）
+        # 2. スタイリスト選択（エラー時にスキップ）
         stylist_name = style_data["スタイリスト名"]
         self._emit_progress(
             current_index,
@@ -697,17 +874,9 @@ class StyleFormHandlerMixin:
                 "style_name": style_name
             }
         )
-        self._execute_input_with_retry(
-            operation_name="スタイリスト選択",
-            operation_func=lambda: self._select_stylist(stylist_name, form_config),
-            row_number=row_number,
-            style_name=style_name,
-            field_name="スタイリスト選択",
-            manual_events=manual_upload_events,
-            skip_on_failure=True
-        )
+        self._select_stylist(stylist_name, form_config, manual_upload_events, row_number, style_name)
 
-        # 3. テキスト入力（リトライ対応）
+        # 3. テキスト入力（エラー時にスキップ）
         self._emit_progress(
             current_index,
             {
@@ -719,17 +888,9 @@ class StyleFormHandlerMixin:
                 "style_name": style_name
             }
         )
-        self._execute_input_with_retry(
-            operation_name="テキスト入力",
-            operation_func=lambda: self._fill_style_details(style_data, form_config),
-            row_number=row_number,
-            style_name=style_name,
-            field_name="テキスト入力",
-            manual_events=manual_upload_events,
-            skip_on_failure=True
-        )
+        self._fill_style_details(style_data, form_config, manual_upload_events, row_number, style_name)
 
-        # 4. カテゴリ/長さ選択（リトライ対応）
+        # 4. カテゴリ/長さ選択（エラー時にスキップ）
         self._emit_progress(
             current_index,
             {
@@ -741,17 +902,9 @@ class StyleFormHandlerMixin:
                 "style_name": style_name
             }
         )
-        self._execute_input_with_retry(
-            operation_name="カテゴリ/長さ選択",
-            operation_func=lambda: self._select_category_and_length(style_data["カテゴリ"], style_data.get("長さ", ""), form_config),
-            row_number=row_number,
-            style_name=style_name,
-            field_name="カテゴリ/長さ",
-            manual_events=manual_upload_events,
-            skip_on_failure=True
-        )
+        self._select_category_and_length(style_data["カテゴリ"], style_data.get("長さ", ""), form_config, manual_upload_events, row_number, style_name)
 
-        # 5. クーポン選択（リトライ対応、指定がある場合のみ）
+        # 5. クーポン選択（エラー時にスキップ、指定がある場合のみ）
         coupon_name = style_data.get("クーポン名", "")
         if coupon_name:
             self._emit_progress(
@@ -765,17 +918,9 @@ class StyleFormHandlerMixin:
                     "style_name": style_name
                 }
             )
-            self._execute_input_with_retry(
-                operation_name="クーポン選択",
-                operation_func=lambda: self._select_coupon(coupon_name, form_config),
-                row_number=row_number,
-                style_name=style_name,
-                field_name="クーポン選択",
-                manual_events=manual_upload_events,
-                skip_on_failure=True
-            )
+            self._select_coupon(coupon_name, form_config, manual_upload_events, row_number, style_name)
 
-        # 6. ハッシュタグ入力（リトライ対応、指定がある場合のみ）
+        # 6. ハッシュタグ入力（エラー時にスキップ、指定がある場合のみ）
         hashtags = style_data.get("ハッシュタグ", "")
         if hashtags:
             self._emit_progress(
@@ -789,15 +934,7 @@ class StyleFormHandlerMixin:
                     "style_name": style_name
                 }
             )
-            self._execute_input_with_retry(
-                operation_name="ハッシュタグ入力",
-                operation_func=lambda: self._input_hashtags(hashtags, form_config),
-                row_number=row_number,
-                style_name=style_name,
-                field_name="ハッシュタグ",
-                manual_events=manual_upload_events,
-                skip_on_failure=True
-            )
+            self._input_hashtags(hashtags, form_config, manual_upload_events, row_number, style_name)
 
         # 7. 登録
         self._emit_progress(
