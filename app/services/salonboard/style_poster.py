@@ -182,19 +182,28 @@ class SalonBoardStylePoster(
                             logger.error("セッションリセットに失敗しました: %s", reset_error)
                             # リセット失敗しても処理を継続（次のスタイルで同じ問題が発生する可能性あり）
 
-                    # 成功時の進捗更新
-                    self._emit_progress(
-                        index + 1,
-                        {
-                            "stage": "STYLE_COMPLETED",
-                            "stage_label": "スタイル投稿完了",
-                            "message": f"{index + 1}/{self.expected_total}件目「{style_name}」の投稿が完了しました",
-                            "status": "completed",
-                            "current_index": index + 1,
-                            "total": self.expected_total,
-                            "style_name": style_name
-                        }
-                    )
+                    # manual_eventsにエラーが含まれる場合のみ成功時の進捗更新を行う
+                    if not manual_events:
+                        self._emit_progress(
+                            index + 1,
+                            {
+                                "stage": "STYLE_COMPLETED",
+                                "stage_label": "スタイル投稿完了",
+                                "message": f"{index + 1}/{self.expected_total}件目「{style_name}」の投稿が完了しました",
+                                "status": "completed",
+                                "current_index": index + 1,
+                                "total": self.expected_total,
+                                "style_name": style_name
+                            },
+                            success={
+                                "row_number": index + 2,
+                                "style_name": style_name,
+                                "image_name": image_filename,
+                                "stylist_name": row.get("スタイリスト名"),
+                                "category": row.get("カテゴリ"),
+                                "length": row.get("長さ")
+                            }
+                        )
 
                     if manual_events:
                         for event in manual_events:

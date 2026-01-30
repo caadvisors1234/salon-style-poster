@@ -506,7 +506,7 @@ async def get_error_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """エラーレポート取得"""
+    """エラーレポート取得（成功スタイル情報を含む）"""
     db_task = crud_task.get_task_by_user_id(db, current_user.id)
     if not db_task:
         raise HTTPException(
@@ -520,13 +520,22 @@ async def get_error_report(
             detail="Task has not completed yet"
         )
 
-    if not db_task.error_info_json:
-        # エラーがない場合は204 No Content
-        raise HTTPException(
-            status_code=status.HTTP_204_NO_CONTENT
-        )
+    # 成功スタイル情報の取得
+    raw_successes = []
+    if db_task.success_info_json:
+        try:
+            raw_successes = json.loads(db_task.success_info_json)
+        except json.JSONDecodeError:
+            raw_successes = []
 
-    raw_errors = json.loads(db_task.error_info_json)
+    # エラー情報の取得
+    raw_errors = []
+    if db_task.error_info_json:
+        try:
+            raw_errors = json.loads(db_task.error_info_json)
+        except json.JSONDecodeError:
+            raw_errors = []
+
     manual_uploads = []
     filtered_errors = []
 
@@ -558,7 +567,9 @@ async def get_error_report(
         "total_errors": len(filtered_errors),
         "errors": filtered_errors,
         "manual_uploads": manual_uploads,
-        "manual_upload_count": len(manual_uploads)
+        "manual_upload_count": len(manual_uploads),
+        "successes": raw_successes,
+        "success_count": len(raw_successes)
     }
 
 

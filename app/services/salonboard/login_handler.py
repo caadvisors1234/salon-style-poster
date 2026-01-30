@@ -6,7 +6,7 @@ from typing import Dict, Optional
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from .exceptions import StylePostError
+from .exceptions import StylePostError, RobotDetectionError
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +94,8 @@ class LoginHandlerMixin:
         logger.debug("ログインページへ遷移: %s", login_config["url"])
         self.page.goto(login_config["url"])
         self._human_pause(base_ms=900, jitter_ms=300)
-        if self._check_robot_detection():
-            raise Exception("ログインページでロボット認証が検出されました")
+        # ロボット認証チェック（検出時は例外がスローされる）
+        self._check_robot_detection()
 
         # ID/パスワード入力
         self._human_pause()

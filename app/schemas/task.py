@@ -50,6 +50,16 @@ class ManualUploadDetail(BaseModel):
     raw_error: Optional[str] = Field(default=None, description="内部ログ上の補足情報")
 
 
+class SuccessDetail(BaseModel):
+    """成功したスタイル情報"""
+    row_number: int = Field(..., description="CSVファイルの行番号")
+    style_name: str = Field(..., description="スタイル名")
+    image_name: Optional[str] = Field(default=None, description="画像ファイル名")
+    stylist_name: Optional[str] = Field(default=None, description="スタイリスト名")
+    category: Optional[str] = Field(default=None, description="カテゴリ")
+    length: Optional[str] = Field(default=None, description="長さ")
+
+
 class ErrorReport(BaseModel):
     """エラーレポートスキーマ"""
     task_id: UUID
@@ -57,3 +67,5 @@ class ErrorReport(BaseModel):
     errors: List[ErrorDetail]
     manual_uploads: List[ManualUploadDetail] = Field(default_factory=list, description="手動登録が必要な画像一覧")
     manual_upload_count: int = Field(default=0, description="手動登録が必要な画像件数")
+    successes: List[SuccessDetail] = Field(default_factory=list, description="成功したスタイル一覧")
+    success_count: int = Field(default=0, description="成功したスタイル件数")
