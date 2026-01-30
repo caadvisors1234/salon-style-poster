@@ -158,10 +158,17 @@ class BrowserUtilsMixin:
             load_timeout,
             load_state,
         )
+        # クリック前に loader_overlay が非表示になるまで待機
+        self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
         self._human_pause()
         self.page.locator(selector).first.click(timeout=click_timeout)
         self._human_pause(base_ms=600, jitter_ms=200)
         self.page.wait_for_load_state(load_state, timeout=load_timeout)
+
+        # クリック後に loader_overlay が非表示になるまで待機
+        self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+
         self._human_pause(base_ms=800, jitter_ms=250)
         logger.debug("クリック完了: selector=%s", selector)
 
@@ -298,6 +305,54 @@ class BrowserUtilsMixin:
             self.page.wait_for_timeout(poll_ms)
 
         raise Exception(f"画像アップロード完了を確認できませんでした (timeout={timeout_ms}ms)")
+
+    def _wait_for_loader_overlay_disappeared(self, timeout_ms: int = 30000) -> None:
+        """
+        loader_overlay が非表示になるまで待機
+
+        クーポン読み込み等の非同期処理中に表示されるオーバーレイが
+        クリック操作を妨げるため、非表示になるまで待機する
+
+        Args:
+            timeout_ms: タイムアウト（ミリ秒）
+        """
+        if not self.page:
+            return
+
+        logger.debug("loader_overlay の非表示を待機します...")
+
+        loader_overlay_selector = self.selectors.get("style_form", {}).get("loader_overlay")
+        if not loader_overlay_selector:
+            logger.debug("loader_overlay セレクタが設定されていません")
+            return
+
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        poll_ms = 500
+        last_log = 0.0
+
+        while time.monotonic() < deadline:
+            overlay_visible = False
+            try:
+                overlay = self.page.locator(loader_overlay_selector)
+                if overlay.count() > 0:
+                    if overlay.first.is_visible(timeout=500):
+                        overlay_visible = True
+            except Exception:
+                pass
+
+            if not overlay_visible:
+                logger.debug("loader_overlay が非表示になりました")
+                return
+
+            now = time.monotonic()
+            if now - last_log > 3.0:
+                logger.debug("loader_overlay がまだ表示されています...")
+                last_log = now
+
+            self.page.wait_for_timeout(poll_ms)
+
+        # タイムアウトしても処理を継続（要素が元々存在しない場合もある）
+        logger.warning("loader_overlay の非表示待機がタイムアウトしました (timeout=%sms)", timeout_ms)
 
     def _get_error_field_from_exception(self, e: Exception) -> str:
         """

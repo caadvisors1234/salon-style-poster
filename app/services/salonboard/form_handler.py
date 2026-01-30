@@ -692,15 +692,32 @@ class StyleFormHandlerMixin:
                 coupon_config = form_config["coupon"]
                 self._human_pause()
 
+                # クーポン選択ボタンクリック前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
                 self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
+
+                # モーダル表示待機前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+
                 self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
                 self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
+
+                # クーポン選択前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
 
                 coupon_selector = coupon_config["item_label_template"].format(name=coupon_name)
                 self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
                 self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
 
+                # 設定ボタンクリック前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
                 self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
+
+                # モーダル非表示待機前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+
                 self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
                 self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
                 logger.info("クーポン選択完了")
@@ -752,10 +769,17 @@ class StyleFormHandlerMixin:
                 import re
                 hashtags = re.split(r'[,\s\n、]+', hashtags_str.strip())
 
+                # ハッシュタグ入力前に loader_overlay を待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
                 for tag in hashtags:
                     tag = tag.strip()
                     if tag:
                         self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
+
+                        # 追加ボタンクリック前に loader_overlay を待機
+                        self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
                         self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
                         self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)
                 logger.info("ハッシュタグ入力完了")
@@ -784,7 +808,15 @@ class StyleFormHandlerMixin:
         """登録実行"""
         try:
             logger.info("登録ボタンクリック中...")
+
+            # 登録ボタンクリック前に loader_overlay を待機
+            self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+
             self._click_and_wait(form_config["register_button"])
+
+            # 完了テキスト待機前に loader_overlay を待機
+            self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+
             self.page.wait_for_selector(form_config["complete_text"], timeout=self.TIMEOUT_LOAD)
             logger.info("登録完了")
         except Exception as e:

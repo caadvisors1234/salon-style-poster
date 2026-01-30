@@ -22,6 +22,8 @@ navigation:
 
 style_form:
   new_style_button: "img[alt='スタイル新規追加']"
+  # ローディングオーバーレイ（非同期処理中に表示される）
+  loader_overlay: "div.loader_overlay"
   # 画像アップロード関連
   image:
     upload_area: "#FRONT_IMG_ID_IMG"
