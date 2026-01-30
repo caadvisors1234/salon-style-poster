@@ -239,7 +239,6 @@ def unpublish_styles_task(
     task_id: str,
     user_id: int,
     setting_id: int,
-    salon_url: str,
     range_start: int,
     range_end: int,
     exclude_numbers: List[int],
@@ -328,7 +327,6 @@ def unpublish_styles_task(
         unpublisher.run_unpublish(
             user_id=setting.sb_user_id,
             password=sb_password,
-            salon_top_url=salon_url,
             range_start=range_start,
             range_end=range_end,
             exclude_numbers=exclude_set,

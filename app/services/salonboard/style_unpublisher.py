@@ -40,7 +40,6 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         self,
         user_id: str,
         password: str,
-        salon_top_url: str,
         range_start: int,
         range_end: int,
         exclude_numbers: Set[int],
@@ -107,13 +106,12 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                 },
             )
 
-            total_styles = self._fetch_style_count_from_hotpepper(salon_top_url)
             emit_progress(
                 0,
                 {
                     "stage": "TARGET_READY",
                     "stage_label": "対象件数を確認しました",
-                    "message": f"スタイル総数: {total_styles}件 / 非掲載対象: {expected_total}件",
+                    "message": f"非掲載対象: {expected_total}件",
                     "status": "info",
                     "current_index": 0,
                     "total": expected_total,
@@ -285,22 +283,6 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             )
         finally:
             self._close_browser()
-
-    def _fetch_style_count_from_hotpepper(self, salon_top_url: str) -> int:
-        """
-        HotPepperBeautyのスタイルページから件数を取得する
-        """
-        style_url = salon_top_url.rstrip("/") + "/style/"
-        try:
-            self.page.goto(style_url, timeout=self.TIMEOUT_LOAD)
-            self.page.wait_for_load_state("domcontentloaded", timeout=self.TIMEOUT_LOAD)
-            locator = self.page.locator("span.numberOfResult")
-            locator.wait_for(state="visible", timeout=self.TIMEOUT_WAIT_ELEMENT)
-            text_value = locator.inner_text().strip().replace(",", "")
-            return int(text_value)
-        except Exception:
-            # 取得に失敗した場合は0を返す（呼び出し側でフォールバックメッセージを出す）
-            return 0
 
     def _get_style_list_url(self, page_number: int = 1) -> str:
         """スタイル一覧のURLを生成"""

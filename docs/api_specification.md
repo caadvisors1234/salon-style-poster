@@ -1154,19 +1154,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### **11. 補足: スタイル非掲載関連エンドポイント**
+### **11. 補足: スタイル非掲載タスク**
 
-#### **11.1. スタイル件数取得**
-- `GET /api/v1/tasks/style-count`
-- 認証必須。`salon_url` は `https://beauty.hotpepper.jp/slnHxxxxxxx/` 形式のみ許可（hostname 完全一致、ユーザー情報禁止）。
-- レスポンス例:
-```json
-{ "style_count": 2105, "style_url": "https://beauty.hotpepper.jp/slnH000232182/style/" }
-```
-
-#### **11.2. スタイル非掲載タスク作成**
+#### **11.1. スタイル非掲載タスク作成**
 - `POST /api/v1/tasks/style-unpublish`
-- フォーム: `setting_id`, `salon_url`, `range_start`, `range_end`, `exclude_numbers`(任意, カンマ区切り)。
+- フォーム: `setting_id`, `range_start`, `range_end`, `exclude_numbers`(任意, カンマ区切り)。
 - SALON BOARD設定の `salon_id/salon_name` を使用し、複数店舗アカウントでも自動選択。
 - 進捗/キャンセル/エラーレポートは既存タスクAPIと共通。
 

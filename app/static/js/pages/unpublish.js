@@ -7,8 +7,6 @@ import { showAlert, showLoading, hideLoading, openScreenshotModal } from '../mod
 let pollingInterval = null;
 let lastErrorCount = 0;
 let notificationPermission = 'default';
-let styleCount = null;
-let lastFetchedUrl = '';
 
 const stageLabelMap = {
     BROWSER_STARTING: 'ブラウザ起動準備',
@@ -46,19 +44,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupEventListeners() {
-    const fetchBtn = document.getElementById('fetch-style-count-btn');
-    if (fetchBtn) fetchBtn.addEventListener('click', () => fetchStyleCount(true));
-
-    const urlInput = document.getElementById('salon_url');
-    if (urlInput) {
-        urlInput.addEventListener('change', () => {
-            styleCount = null;
-            lastFetchedUrl = '';
-            const display = document.getElementById('style-count-display');
-            if (display) display.textContent = 'スタイル数: 未取得';
-        });
-    }
-
     const form = document.getElementById('unpublish-form');
     if (form) form.addEventListener('submit', handleTaskSubmit);
 
@@ -158,44 +143,6 @@ async function loadSettings() {
         });
     } catch (error) {
         console.error('Failed to load settings:', error);
-    }
-}
-
-async function fetchStyleCount(force = false) {
-    const urlInput = document.getElementById('salon_url');
-    const display = document.getElementById('style-count-display');
-    const statusBox = document.getElementById('style-count-status');
-    const url = (urlInput.value || '').trim();
-    if (!url) {
-        showAlert('サロンURLを入力してください', 'warning');
-        return;
-    }
-    if (!force && url === lastFetchedUrl && styleCount) {
-        return;
-    }
-
-    display.textContent = 'スタイル数: 取得中...';
-    statusBox.classList.remove('text-danger');
-
-    try {
-        const result = await apiCall(`/api/v1/tasks/style-count?salon_url=${encodeURIComponent(url)}`);
-        styleCount = result.style_count;
-        lastFetchedUrl = url;
-        display.textContent = `スタイル数: ${styleCount}件`;
-
-        const startInput = document.getElementById('range_start');
-        const endInput = document.getElementById('range_end');
-        startInput.max = styleCount;
-        endInput.max = styleCount;
-
-        const suggestedStart = Math.max(1, styleCount - 149); // Max 150 items? Or whatever limit
-        startInput.value = suggestedStart;
-        endInput.value = styleCount;
-    } catch (error) {
-        styleCount = null;
-        display.textContent = 'スタイル数: 取得に失敗しました';
-        statusBox.classList.add('text-danger');
-        showAlert(error.message, 'danger');
     }
 }
 
@@ -480,12 +427,56 @@ async function handleTaskSubmit(e) {
     const start = Number(formData.get('range_start') || 0);
     const end = Number(formData.get('range_end') || 0);
 
-    if (styleCount && end > styleCount) {
-        showAlert(`終了番号がスタイル数(${styleCount})を超えています`, 'warning');
-        return;
-    }
     if (start <= 0 || end <= 0 || start > end) {
         showAlert('開始番号と終了番号を確認してください', 'warning');
+        return;
+    }
+
+    // 除外番号のバリデーション
+    const excludeInput = document.getElementById('exclude_numbers');
+    const excludeText = excludeInput?.value ? excludeInput.value : '';
+    const excludeSet = new Set();
+    const invalidExcludes = [];
+
+    if (excludeText.trim() !== '') {
+        for (const token of excludeText.replace(/\n/g, ',').split(',')) {
+            const trimmed = token.trim();
+            if (trimmed) {
+                const num = parseInt(trimmed, 10);
+                if (isNaN(num)) {
+                    showAlert(`除外番号「${trimmed}」は有効な数字ではありません`, 'warning');
+                    return;
+                }
+                if (num < start || num > end) {
+                    invalidExcludes.push(num);
+                } else {
+                    excludeSet.add(num);
+                }
+            }
+        }
+    }
+
+    if (invalidExcludes.length > 0) {
+        showAlert(
+            `除外番号に範囲外(${start}〜${end})の番号が含まれています: ${invalidExcludes.join(', ')}`,
+            'warning'
+        );
+        return;
+    }
+
+    const totalCount = end - start + 1;
+    const actualCount = totalCount - excludeSet.size;
+
+    // 確認ダイアログ
+    const displayExcludeText = excludeText.trim() !== '' ? excludeText : 'なし';
+    if (!confirm(
+        `非掲載タスクを開始します\n\n` +
+        `開始番号: ${start}\n` +
+        `終了番号: ${end}\n` +
+        `除外番号: ${displayExcludeText}\n` +
+        `対象件数: ${actualCount}件\n\n` +
+        `よろしいですか？`
+    )) {
         return;
     }
 
@@ -530,11 +521,6 @@ async function handleNewTask() {
         showFormSection();
         const form = document.getElementById('unpublish-form');
         if (form) form.reset();
-
-        const countDisp = document.getElementById('style-count-display');
-        if (countDisp) countDisp.textContent = 'スタイル数: 未取得';
-        styleCount = null;
-        lastFetchedUrl = '';
     } catch (error) {
         showAlert(error.message, 'danger');
     }
