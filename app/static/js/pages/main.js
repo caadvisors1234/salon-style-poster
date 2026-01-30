@@ -387,12 +387,10 @@ async function loadErrorReport() {
             if (successCountBadge) successCountBadge.textContent = `${successes.length}件`;
             successes.forEach((item, index) => {
                 const row = document.createElement('tr');
+                // スタイル番号は1から始まる（index + 1）
                 row.innerHTML = `
-                    <td>${item.row_number || index + 1}</td>
+                    <td>${index + 1}</td>
                     <td>${item.style_name || '-'}</td>
-                    <td>${item.stylist_name || '-'}</td>
-                    <td>${item.category || '-'}</td>
-                    <td>${item.length || '-'}</td>
                 `;
                 if (successList) successList.appendChild(row);
             });
