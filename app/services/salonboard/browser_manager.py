@@ -144,6 +144,45 @@ class SalonBoardBrowserManager:
 
         logger.info("ブラウザ起動完了（Camoufox）")
 
+    def _reset_browser_context(self) -> "Page":
+        """
+        ブラウザコンテキストをリセットして新規ページを返す
+
+        ボット検知回避のため、画像アップロード失敗時にセッションを完全にリセットする
+
+        Returns:
+            Page: 新規作成されたページ
+        """
+        logger.info("ブラウザコンテキストをリセットします...")
+
+        # 既存のページをクローズ
+        if self.page:
+            try:
+                self.page.close()
+            except Exception as e:
+                logger.warning("ページクローズ時に警告: %s", e)
+            finally:
+                self.page = None
+
+        # 既存のコンテキストをクローズ
+        if self.context:
+            try:
+                self.context.close()
+            except Exception as e:
+                logger.warning("コンテキストクローズ時に警告: %s", e)
+            finally:
+                self.context = None
+
+        # 新規コンテキスト作成
+        self.context = self.browser.new_context()
+        logger.info("新規ブラウザコンテキストを作成しました")
+
+        # 新規ページ作成
+        self.page = self._create_page()
+        logger.info("新規ページを作成しました")
+
+        return self.page
+
     def _close_browser(self):
         """ブラウザ終了（Camoufox版）"""
         if self.page:

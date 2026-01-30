@@ -48,6 +48,11 @@ class SalonBoardStylePoster(
             progress_callback: 進捗コールバック関数
             total_items: 期待される処理件数（事前計算済みの総件数）
         """
+        # credentials を保持（セッションリセット用）
+        self._user_id = user_id
+        self._password = password
+        self._salon_info = salon_info
+
         self.progress_callback = progress_callback
         self.expected_total = total_items or 0
 
@@ -163,6 +168,20 @@ class SalonBoardStylePoster(
                     # スタイル処理
                     manual_events = self.step_process_single_style(style_dict, str(image_path), index)
 
+                    # 画像アップロード失敗検出とセッションリセット
+                    image_upload_failed = any(
+                        event.get("error_category") in ("IMAGE_UPLOAD_ABORTED", "ACCESS_CONGESTION")
+                        for event in manual_events
+                    )
+
+                    if image_upload_failed:
+                        logger.warning("画像アップロード失敗を検出、セッションをリセットします")
+                        try:
+                            self._reset_session_and_relogin(self._user_id, self._password, self._salon_info)
+                        except Exception as reset_error:
+                            logger.error("セッションリセットに失敗しました: %s", reset_error)
+                            # リセット失敗しても処理を継続（次のスタイルで同じ問題が発生する可能性あり）
+
                     # 成功時の進捗更新
                     self._emit_progress(
                         index + 1,
@@ -276,6 +295,87 @@ class SalonBoardStylePoster(
         finally:
             # ブラウザ終了
             self._close_browser()
+
+
+    def _reset_session_and_relogin(
+        self,
+        user_id: str,
+        password: str,
+        salon_info: Optional[Dict] = None
+    ) -> None:
+        """
+        セッションをリセットして再ログインする
+
+        画像アップロード失敗時などのボット検知回避のため、
+        完全に新しいセッションで再ログインを行う
+
+        Args:
+            user_id: SALON BOARDログインID
+            password: SALON BOARDパスワード
+            salon_info: サロン情報（複数店舗用）
+
+        Raises:
+            StylePostError: セッションリセットに失敗した場合
+        """
+        logger.info("セッションリセットと再ログインを開始します...")
+
+        # 進捗通知
+        self._emit_progress(
+            0,
+            {
+                "stage": "SESSION_RESETTING",
+                "stage_label": "セッションリセット中",
+                "message": "ボット検知回避のためセッションをリセットしています...",
+                "status": "info",
+            }
+        )
+
+        try:
+            # コンテキストリセット
+            self._reset_browser_context()
+
+            # 進捗通知
+            self._emit_progress(
+                0,
+                {
+                    "stage": "SESSION_RELOGGING",
+                    "stage_label": "再ログイン中",
+                    "message": "新しいセッションで再ログインしています...",
+                    "status": "info",
+                }
+            )
+
+            # 再ログイン
+            self.step_login(user_id, password, salon_info)
+
+            # スタイル一覧へ移動
+            self.step_navigate_to_style_list_page()
+
+            # 待機（サーバー側の制限解除を待つ）
+            import time
+            wait_seconds = 5
+            logger.info("サーバー側の制限解除を待機します（%s秒）...", wait_seconds)
+            time.sleep(wait_seconds)
+
+            logger.info("セッションリセットと再ログインが完了しました")
+
+            # 進捗通知
+            self._emit_progress(
+                0,
+                {
+                    "stage": "SESSION_RESET_COMPLETED",
+                    "stage_label": "セッションリセット完了",
+                    "message": "新しいセッションで処理を継続します",
+                    "status": "info",
+                }
+            )
+
+        except Exception as e:
+            logger.error("セッションリセットに失敗しました: %s", e)
+            raise StylePostError(
+                f"セッションリセットに失敗しました: {e}",
+                self._take_screenshot("error-session-reset")
+            )
 
 
 def load_selectors(yaml_path: str = "app/selectors.yaml") -> Dict:
