@@ -238,9 +238,11 @@ async function showResultSection(status) {
         if (failureMessage) failureMessage.classList.remove('hidden');
     }
 
-    if (status.has_errors || (status.manual_upload_count && status.manual_upload_count > 0)) {
-        await loadErrorReport();
-    } else {
+    // 常にloadErrorReportを呼び出して成功スタイル情報を表示
+    await loadErrorReport();
+
+    // エラーと手動アップロードがない場合はエラーセクションを非表示
+    if (!status.has_errors && (!status.manual_upload_count || status.manual_upload_count === 0)) {
         const errorRepSec = document.getElementById('error-report-section');
         const manualUpSec = document.getElementById('manual-upload-section');
         if (errorRepSec) errorRepSec.classList.add('hidden');
