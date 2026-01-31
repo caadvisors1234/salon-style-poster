@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}スタイル非掲載タスク - SALON BOARD Style Poster{% endblock %}
+{% block title %}スタイル削除タスク - SALON BOARD Style Poster{% endblock %}
 
 {% block content %}
 <div class="card">
-    <h2 class="card-header">スタイル非掲載タスク</h2>
+    <h2 class="card-header">スタイル削除タスク</h2>
 
     <div id="task-form-section" class="hidden">
-        <form id="unpublish-form">
+        <form id="delete-form">
             <div class="form-group">
-                <label for="unpublish_setting_id" class="form-label">SALON BOARD設定</label>
-                <select id="unpublish_setting_id" name="setting_id" class="form-select" required>
+                <label for="delete_setting_id" class="form-label">SALON BOARD設定</label>
+                <select id="delete_setting_id" name="setting_id" class="form-select" required>
                     <option value="">設定を選択してください</option>
                 </select>
                 <span class="form-hint">
@@ -19,7 +19,7 @@
             </div>
 
             <div class="form-group">
-                <label for="range_start" class="form-label">非掲載対象の開始番号</label>
+                <label for="range_start" class="form-label">削除対象の開始番号</label>
                 <input type="number" id="range_start" name="range_start" class="form-input" min="1" required
                     placeholder="例: 9000">
                 <span class="form-hint">
@@ -28,7 +28,7 @@
             </div>
 
             <div class="form-group">
-                <label for="range_end" class="form-label">非掲載対象の終了番号</label>
+                <label for="range_end" class="form-label">削除対象の終了番号</label>
                 <input type="number" id="range_end" name="range_end" class="form-input" min="1" required
                     placeholder="例: 9999">
             </div>
@@ -38,13 +38,13 @@
                 <input type="text" id="exclude_numbers" name="exclude_numbers" class="form-input"
                     placeholder="カンマ区切りで入力（例: 9050,9051）">
                 <span class="form-hint">
-                    非掲載しない番号がある場合に入力してください
+                    削除しない番号がある場合に入力してください
                 </span>
             </div>
 
             <div class="btn-group">
                 <button type="submit" class="btn btn-primary">
-                    非掲載タスクを開始
+                    削除タスクを開始
                 </button>
             </div>
         </form>
@@ -143,5 +143,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script type="module" src="{{ url_for('static', path='/js/pages/unpublish.js') }}"></script>
+<script type="module" src="{{ url_for('static', path='/js/pages/delete.js') }}"></script>
 {% endblock %}

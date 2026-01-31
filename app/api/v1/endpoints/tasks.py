@@ -20,7 +20,7 @@ from app.core.security import get_current_user
 from app.crud import current_task as crud_task, salon_board_setting as crud_setting
 from app.schemas.user import User
 from app.schemas.task import TaskStatus, ErrorReport
-from app.services.tasks import process_style_post_task, unpublish_styles_task
+from app.services.tasks import process_style_post_task, delete_styles_task
 from app.core.celery_app import celery_app
 
 router = APIRouter()
@@ -213,9 +213,9 @@ async def create_style_post_task(
         )
 
 
-@router.post("/style-unpublish", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/style-delete", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("6/hour")
-async def create_style_unpublish_task(
+async def create_style_delete_task(
     request: Request,
     setting_id: int = Form(...),
     range_start: int = Form(...),
@@ -225,7 +225,7 @@ async def create_style_unpublish_task(
     current_user: User = Depends(get_current_user),
 ):
     """
-    スタイル非掲載タスク作成・実行
+    スタイル削除タスク作成・実行
     """
     db_setting = crud_setting.get_setting_by_id(db, setting_id)
     if not db_setting or db_setting.user_id != current_user.id:
@@ -258,7 +258,7 @@ async def create_style_unpublish_task(
     if not target_numbers:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No target styles to unpublish in the specified range.",
+            detail="No target styles to delete in the specified range.",
         )
 
     task_uuid = uuid.uuid4()
@@ -279,7 +279,7 @@ async def create_style_unpublish_task(
                 detail={
                     "stage": "INITIALIZING",
                     "stage_label": "タスクを準備しています",
-                    "message": f"非掲載対象: {total_items}件、範囲 {range_start}〜{range_end}",
+                    "message": f"削除対象: {total_items}件、範囲 {range_start}〜{range_end}",
                     "status": "pending",
                     "current_index": 0,
                     "total": total_items,
@@ -292,7 +292,7 @@ async def create_style_unpublish_task(
                 detail="You already have a task in progress",
             )
 
-        unpublish_styles_task.apply_async(
+        delete_styles_task.apply_async(
             kwargs={
                 "task_id": str(task_uuid),
                 "user_id": current_user.id,
@@ -314,7 +314,7 @@ async def create_style_unpublish_task(
         crud_task.delete_task(db, task_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create unpublish task: {str(e)}",
+            detail=f"Failed to create delete task: {str(e)}",
         )
 
 

@@ -1,5 +1,5 @@
 """
-SALON BOARDスタイル非掲載処理
+SALON BOARDスタイル削除処理
 """
 from __future__ import annotations
 
@@ -16,28 +16,28 @@ if TYPE_CHECKING:
     from playwright.sync_api import Locator
 
 from .style_poster import SalonBoardStylePoster
-from .exceptions import StylePostError, StyleUnpublishError
+from .exceptions import StylePostError, StyleDeleteError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class UnpublishCandidate:
+class DeleteCandidate:
     """一覧上の1行を表すデータ"""
 
     style_number: int
     click_target: Locator
 
 
-class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
+class SalonBoardStyleDeleter(SalonBoardStylePoster):
     """
-    スタイル非掲載処理を行うクラス
+    スタイル削除処理を行うクラス
 
     既存のブラウザ起動・ログイン・人間的待機などのロジックを継承し、
-    スタイル一覧から指定範囲のスタイルを順次「非掲載」にする。
+    スタイル一覧から指定範囲のスタイルを順次「削除」する。
     """
 
-    def run_unpublish(
+    def run_delete(
         self,
         user_id: str,
         password: str,
@@ -48,7 +48,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         progress_callback: Optional[Callable[[int, int, Dict, Optional[Dict]], None]] = None,
     ) -> None:
         """
-        非掲載処理のメインフロー
+        削除処理のメインフロー
         """
         self.progress_callback = progress_callback
         target_numbers = [n for n in range(range_start, range_end + 1) if n not in exclude_numbers]
@@ -57,7 +57,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         error_count = 0
 
         logger.info(
-            "[UNPUBLISH] start user=%s range=%s-%s exclude=%s total=%s",
+            "[DELETE] start user=%s range=%s-%s exclude=%s total=%s",
             user_id,
             range_start,
             range_end,
@@ -111,7 +111,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                 {
                     "stage": "TARGET_READY",
                     "stage_label": "対象件数を確認しました",
-                    "message": f"非掲載対象: {total_targets}件",
+                    "message": f"削除対象: {total_targets}件",
                     "status": "info",
                     "current_index": 0,
                     "total": total_targets,
@@ -150,7 +150,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
 
                 candidates = self._collect_candidates()
                 logger.info(
-                    "[UNPUBLISH] page=%s candidates=%s target_number=%s remaining=%s",
+                    "[DELETE] page=%s candidates=%s target_number=%s remaining=%s",
                     current_page,
                     len(candidates),
                     target_number,
@@ -169,9 +169,9 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     emit_progress(
                         success_count,
                         {
-                            "stage": "UNPUBLISH_PROCESSING",
-                            "stage_label": "非掲載処理中",
-                            "message": f"{success_count + 1}/{total_targets}件目: スタイル番号 {target_number} を非掲載中",
+                            "stage": "DELETE_PROCESSING",
+                            "stage_label": "削除処理中",
+                            "message": f"{success_count + 1}/{total_targets}件目: スタイル番号 {target_number} を削除中",
                             "status": "working",
                             "current_index": success_count + 1,
                             "total": total_targets,
@@ -180,13 +180,13 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     )
 
                     try:
-                        self._unpublish_single_row(target, current_page)
+                        self._delete_single_row(target, current_page)
                         # 成功時のみカウントアップ
                         success_count += 1
                         remaining_targets.popleft()  # 処理済みを削除
 
                         logger.info(
-                            "[UNPUBLISH] success style_number=%s success=%s/%s total=%s remaining=%s",
+                            "[DELETE] success style_number=%s success=%s/%s total=%s remaining=%s",
                             target_number,
                             success_count,
                             total_targets,
@@ -196,32 +196,32 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                         emit_progress(
                             success_count,
                             {
-                                "stage": "UNPUBLISH_COMPLETED",
-                                "stage_label": "非掲載完了",
-                                "message": f"スタイル番号 {target_number} を非掲載にしました",
+                                "stage": "DELETE_COMPLETED",
+                                "stage_label": "削除完了",
+                                "message": f"スタイル番号 {target_number} を削除しました",
                                 "status": "completed",
                                 "current_index": success_count,
                                 "total": total_targets,
                                 "style_number": target_number,
                             },
                         )
-                        # 成功時は次の反復へ（_unpublish_single_row内で既に一覧に戻っている）
+                        # 成功時は次の反復へ（_delete_single_row内で既に一覧に戻っている）
                         continue
 
                     except Exception as exc:
                         error_count += 1
                         screenshot_path = ""
-                        if isinstance(exc, StyleUnpublishError):
+                        if isinstance(exc, StyleDeleteError):
                             screenshot_path = exc.screenshot_path
                         elif isinstance(exc, StylePostError):
                             screenshot_path = exc.screenshot_path
                         else:
-                            screenshot_path = self._take_screenshot("unpublish-error")
+                            screenshot_path = self._take_screenshot("delete-error")
 
                         error_payload = {
                             "row_number": 0,
                             "style_name": f"番号 {target_number}",
-                            "field": "非掲載",
+                            "field": "削除",
                             "reason": str(exc),
                             "screenshot_path": screenshot_path,
                         }
@@ -229,9 +229,9 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                         emit_progress(
                             success_count,
                             {
-                                "stage": "UNPUBLISH_ERROR",
-                                "stage_label": "非掲載エラー",
-                                "message": f"スタイル番号 {target_number} の非掲載に失敗しました。次のスタイルに進みます。",
+                                "stage": "DELETE_ERROR",
+                                "stage_label": "削除エラー",
+                                "message": f"スタイル番号 {target_number} の削除に失敗しました。次のスタイルに進みます。",
                                 "status": "error",
                                 "current_index": success_count,
                                 "total": total_targets,
@@ -240,18 +240,18 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                             error=error_payload,
                         )
                         logger.warning(
-                            "[UNPUBLISH] error style_number=%s, skipping to next target (errors=%s)",
+                            "[DELETE] error style_number=%s, skipping to next target (errors=%s)",
                             target_number,
                             error_count,
                         )
                         # エラーがあったスタイルはスキップして次へ
                         remaining_targets.popleft()
-                        # _unpublish_single_row の finally で既に一覧に戻っている
+                        # _delete_single_row の finally で既に一覧に戻っている
 
                 else:
                     # target_number が見つからない場合
                     logger.warning(
-                        "[UNPUBLISH] target_number=%s not found on current page (page=%s)",
+                        "[DELETE] target_number=%s not found on current page (page=%s)",
                         target_number,
                         current_page,
                     )
@@ -266,7 +266,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                         emit_progress(
                             success_count,
                             {
-                                "stage": "UNPUBLISH_NOT_FOUND",
+                                "stage": "DELETE_NOT_FOUND",
                                 "stage_label": "未処理のスタイルがあります",
                                 "message": f"スタイル番号 {target_number} を一覧から見つけられませんでした",
                                 "status": "warning",
@@ -277,18 +277,18 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                             error={
                                 "row_number": 0,
                                 "style_name": f"番号 {target_number}",
-                                "field": "非掲載",
+                                "field": "削除",
                                 "reason": "スタイル一覧に対象番号が見つかりませんでした",
-                                "screenshot_path": self._take_screenshot("unpublish-not-found"),
+                                "screenshot_path": self._take_screenshot("delete-not-found"),
                             },
                         )
-                        raise StyleUnpublishError(
+                        raise StyleDeleteError(
                             f"スタイル番号 {target_number} が一覧で見つかりませんでした"
                         )
 
             # 最終サマリー：成功件数とエラー件数を明確に表示
             summary_message = (
-                f"非掲載処理が完了しました: "
+                f"削除処理が完了しました: "
                 f"成功 {success_count}件"
             )
             if error_count > 0:
@@ -306,7 +306,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                 },
             )
             logger.info(
-                "[UNPUBLISH] summary: success=%s error=%s total=%s",
+                "[DELETE] summary: success=%s error=%s total=%s",
                 success_count,
                 error_count,
                 total_targets,
@@ -329,12 +329,12 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         self.page.goto(target_url, timeout=self.TIMEOUT_LOAD)
         self.page.wait_for_load_state("domcontentloaded", timeout=self.TIMEOUT_LOAD)
 
-    def _collect_candidates(self) -> List[UnpublishCandidate]:
-        """一覧テーブルから番号と非掲載ボタンのペアを取得"""
+    def _collect_candidates(self) -> List[DeleteCandidate]:
+        """一覧テーブルから番号と削除ボタンのペアを取得"""
         selectors = self.selectors["style_list"]
         rows = self.page.locator(selectors["rows"])
         row_count = rows.count()
-        candidates: List[UnpublishCandidate] = []
+        candidates: List[DeleteCandidate] = []
 
         for idx in range(row_count):
             row = rows.nth(idx)
@@ -355,17 +355,17 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             except ValueError:
                 continue
 
-            unpublish_buttons = row.locator(selectors["unpublish_button"])
-            if unpublish_buttons.count() == 0:
+            delete_buttons = row.locator(selectors["delete_button"])
+            if delete_buttons.count() == 0:
                 continue
 
-            candidates.append(UnpublishCandidate(style_number=style_number, click_target=unpublish_buttons.first))
+            candidates.append(DeleteCandidate(style_number=style_number, click_target=delete_buttons.first))
 
         return candidates
 
-    def _unpublish_single_row(self, candidate: UnpublishCandidate, current_page: int) -> None:
-        """単一行の非掲載ボタンをクリックし、完了画面から一覧へ戻す"""
-        complete_selector = self.selectors["style_list"]["unpublish_complete_text"]
+    def _delete_single_row(self, candidate: DeleteCandidate, current_page: int) -> None:
+        """単一行の削除ボタンをクリックし、完了画面から一覧へ戻す"""
+        complete_selector = self.selectors["style_list"]["delete_complete_text"]
         back_button_selector = self.selectors["style_form"]["back_to_list_button"]
         last_error: Exception | None = None
 
@@ -381,7 +381,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             self.page.once("dialog", _handle_dialog)
 
             try:
-                # 1. 非掲載ボタンクリック（ダイアログ表示）
+                # 1. 削除ボタンクリック（ダイアログ表示）
                 try:
                     with self.page.expect_navigation(wait_until="domcontentloaded", timeout=self.TIMEOUT_LOAD):
                         candidate.click_target.click(timeout=self.TIMEOUT_CLICK)
@@ -427,7 +427,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "[UNPUBLISH] attempt=%s failed: %s",
+                    "[DELETE] attempt=%s failed: %s",
                     attempt,
                     exc,
                 )
@@ -438,10 +438,10 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     try:
                         self._go_to_style_list_page(current_page)
                     except Exception as e:
-                        logger.warning("[UNPUBLISH] failed to return to list: %s", e)
+                        logger.warning("[DELETE] failed to return to list: %s", e)
 
         # リトライ上限到達
-        raise StyleUnpublishError(
-            f"非掲載操作に失敗しました（リトライ上限到達）: {last_error}",
-            self._take_screenshot("unpublish-failed"),
+        raise StyleDeleteError(
+            f"削除操作に失敗しました（リトライ上限到達）: {last_error}",
+            self._take_screenshot("delete-failed"),
         )

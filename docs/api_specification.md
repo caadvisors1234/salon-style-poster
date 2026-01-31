@@ -1154,17 +1154,8 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### **11. 補足: スタイル非掲載タスク**
 
-#### **11.1. スタイル非掲載タスク作成**
-- `POST /api/v1/tasks/style-unpublish`
-- フォーム: `setting_id`, `range_start`, `range_end`, `exclude_numbers`(任意, カンマ区切り)。
-- SALON BOARD設定の `salon_id/salon_name` を使用し、複数店舗アカウントでも自動選択。
-- 進捗/キャンセル/エラーレポートは既存タスクAPIと共通。
-
----
-
-### **12. 変更履歴**
+### **11. 変更履歴**
 
 | バージョン | 日付 | 変更内容 |
 |:---------|:-----|:---------|
