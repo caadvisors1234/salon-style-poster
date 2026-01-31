@@ -19,9 +19,9 @@ from app.crud import current_task as crud_task, salon_board_setting as crud_sett
 from app.core.security import decrypt_password
 from app.services.salonboard import (
     SalonBoardStylePoster,
-    SalonBoardStyleUnpublisher,
+    SalonBoardStyleDeleter,
     StylePostError,
-    StyleUnpublishError,
+    StyleDeleteError,
     RobotDetectionError,
     load_selectors,
 )
@@ -233,8 +233,8 @@ def process_style_post_task(
             logger.warning("クリーンアップエラー: %s", cleanup_error)
 
 
-@celery_app.task(bind=True, base=MonitoredTask, name="unpublish_styles")
-def unpublish_styles_task(
+@celery_app.task(bind=True, base=MonitoredTask, name="delete_styles")
+def delete_styles_task(
     self,
     task_id: str,
     user_id: int,
@@ -244,17 +244,17 @@ def unpublish_styles_task(
     exclude_numbers: List[int],
 ):
     """
-    スタイル非掲載タスク
+    スタイル削除タスク
     """
     task_uuid = UUID(task_id)
     db = self.db
-    
+
     # 初期値
     total_items = 0
     exclude_set: Set[int] = {int(n) for n in exclude_numbers}
 
     try:
-        logger.info("=== 非掲載タスク開始: %s ===", task_id)
+        logger.info("=== 削除タスク開始: %s ===", task_id)
 
         # 初期状態確保
         db_task_snapshot = crud_task.get_task_by_id(db, task_uuid)
@@ -270,7 +270,7 @@ def unpublish_styles_task(
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
         screenshot_dir = str(SCREENSHOT_DIR)
 
-        unpublisher = SalonBoardStyleUnpublisher(
+        deleter = SalonBoardStyleDeleter(
             selectors=selectors,
             screenshot_dir=screenshot_dir,
             headless=not settings.USE_HEADFUL_MODE,
@@ -296,7 +296,7 @@ def unpublish_styles_task(
                 stage_label = detail.pop("stage_label", "")
                 message = detail.pop("message", "")
                 status_text = detail.pop("status", "running")
-                
+
                 current_idx = detail.pop("current_index", completed)
                 total_val = detail.pop("total", total_items or total)
                 style_num = detail.pop("style_number", None)
@@ -324,7 +324,7 @@ def unpublish_styles_task(
                 "name": setting.salon_name,
             }
 
-        unpublisher.run_unpublish(
+        deleter.run_delete(
             user_id=setting.sb_user_id,
             password=sb_password,
             range_start=range_start,
@@ -336,7 +336,7 @@ def unpublish_styles_task(
 
         # 完了処理
         crud_task.update_task_status(db, task_uuid, "SUCCESS")
-        
+
         final_snapshot = crud_task.get_task_by_id(db, task_uuid)
         final_completed = final_snapshot.completed_items if final_snapshot else total_items
         final_total = final_snapshot.total_items if final_snapshot else total_items
@@ -345,12 +345,12 @@ def unpublish_styles_task(
             task_uuid=task_uuid,
             stage="COMPLETED",
             stage_label="タスク完了",
-            message="指定範囲の非掲載処理が完了しました",
+            message="指定範囲の削除処理が完了しました",
             status_text="success",
             current_index=final_completed,
             total=final_total
         )
-        logger.info("=== 非掲載タスク完了: %s ===", task_id)
+        logger.info("=== 削除タスク完了: %s ===", task_id)
 
     except TaskCancelledError as cancel_error:
         self.handle_cancel(task_uuid, task_id, cancel_error, completed_items=0, total_items=total_items)
@@ -360,29 +360,29 @@ def unpublish_styles_task(
         # コンテキスト作成
         error_context = None
         screenshot_path = ""
-        if isinstance(e, (StylePostError, StyleUnpublishError)):
+        if isinstance(e, (StylePostError, StyleDeleteError)):
             screenshot_path = getattr(e, "screenshot_path", "") or ""
             if screenshot_path:
                 logger.warning("スクリーンショット: %s", screenshot_path)
-        
+
         error_context = {
             "row_number": 0,
-            "style_name": "非掲載エラー",
-            "field": "非掲載処理",
+            "style_name": "削除エラー",
+            "field": "削除処理",
             "reason": str(e),
             "screenshot_path": screenshot_path,
         }
-        
+
         # 汎用例外の場合でscreenshot_pathが無い場合の情報補完
-        if not isinstance(e, (StylePostError, StyleUnpublishError)):
+        if not isinstance(e, (StylePostError, StyleDeleteError)):
              error_context["reason"] = f"予期せぬエラー: {str(e)}"
 
         self.handle_failure(
-            task_uuid=task_uuid, 
-            task_id=task_id, 
-            error=e, 
-            completed_items=0, 
-            total_items=total_items, 
+            task_uuid=task_uuid,
+            task_id=task_id,
+            error=e,
+            completed_items=0,
+            total_items=total_items,
             error_context=error_context
         )
         raise

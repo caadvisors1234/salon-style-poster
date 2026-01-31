@@ -78,8 +78,8 @@ widget:
 style_list:
   rows: "#sortStyleForm > table > tbody > tr"
   style_number_input: "input[name*='.sortNo']"
-  unpublish_button: "img[alt='非掲載']"
+  delete_button: "img[alt='削除する']"
   pagination:
     container: "#pagingControl"
     next_button: "#pagingControl a.pgNext"
-  unpublish_complete_text: "text=登録が完了しました"
+  delete_complete_text: "text=登録が完了しました"

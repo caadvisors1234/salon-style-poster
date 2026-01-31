@@ -1,5 +1,5 @@
 /**
- * Unpublish Page Logic
+ * Delete Page Logic
  */
 import { apiCall, apiCallFormData } from '../modules/api.js';
 import { showAlert, showLoading, hideLoading, openScreenshotModal } from '../modules/ui.js';
@@ -20,9 +20,9 @@ const stageLabelMap = {
     STYLE_WARNING: '手動対応が必要',
     SUMMARY: '処理完了',
     TARGET_READY: '対象確認完了',
-    UNPUBLISH_PROCESSING: '非掲載処理中',
-    UNPUBLISH_COMPLETED: '非掲載完了',
-    UNPUBLISH_ERROR: '非掲載エラー',
+    DELETE_PROCESSING: '削除処理中',
+    DELETE_COMPLETED: '削除完了',
+    DELETE_ERROR: '削除エラー',
     CANCELLING: 'キャンセル処理',
     CANCELLED: 'キャンセル済み',
     FAILED: 'タスク失敗',
@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupEventListeners() {
-    const form = document.getElementById('unpublish-form');
+    const form = document.getElementById('delete-form');
     if (form) form.addEventListener('submit', handleTaskSubmit);
 
     const cancelBtn = document.getElementById('cancel-task-btn');
@@ -123,7 +123,7 @@ async function loadSettings() {
     try {
         const data = await apiCall('/api/v1/sb-settings/');
         const settings = data.settings || [];
-        const select = document.getElementById('unpublish_setting_id');
+        const select = document.getElementById('delete_setting_id');
 
         if (!select) return;
 
@@ -470,7 +470,7 @@ async function handleTaskSubmit(e) {
     // 確認ダイアログ
     const displayExcludeText = excludeText.trim() !== '' ? excludeText : 'なし';
     if (!confirm(
-        `非掲載タスクを開始します\n\n` +
+        `削除タスクを開始します\n\n` +
         `開始番号: ${start}\n` +
         `終了番号: ${end}\n` +
         `除外番号: ${displayExcludeText}\n` +
@@ -482,9 +482,9 @@ async function handleTaskSubmit(e) {
 
     showLoading();
     try {
-        await apiCallFormData('/api/v1/tasks/style-unpublish', formData);
+        await apiCallFormData('/api/v1/tasks/style-delete', formData);
         hideLoading();
-        showAlert('非掲載タスクを開始しました', 'success');
+        showAlert('削除タスクを開始しました', 'success');
         await checkTaskStatus();
     } catch (error) {
         hideLoading();
@@ -519,7 +519,7 @@ async function handleNewTask() {
     try {
         await apiCall('/api/v1/tasks/finished-task', { method: 'DELETE' });
         showFormSection();
-        const form = document.getElementById('unpublish-form');
+        const form = document.getElementById('delete-form');
         if (form) form.reset();
     } catch (error) {
         showAlert(error.message, 'danger');

@@ -180,7 +180,7 @@ export async function setupHeader(activePage = '') {
 
             const navLinks = [
                 { href: '/main', text: 'スタイル投稿', id: 'main' },
-                { href: '/unpublish', text: 'スタイル非掲載', id: 'unpublish' },
+                { href: '/delete', text: 'スタイル削除', id: 'delete' },
                 { href: '/settings', text: '設定', id: 'settings' }
             ];
 

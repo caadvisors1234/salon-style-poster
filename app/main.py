@@ -110,10 +110,10 @@ async def admin_users_page(request: Request):
     return templates.TemplateResponse("admin/users.html", {"request": request, "active_page": "admin"})
 
 
-@app.get("/unpublish")
-async def unpublish_page(request: Request):
-    """スタイル非掲載ページ"""
-    return templates.TemplateResponse("unpublish/index.html", {"request": request, "active_page": "unpublish"})
+@app.get("/delete")
+async def delete_page(request: Request):
+    """スタイル削除ページ"""
+    return templates.TemplateResponse("delete/index.html", {"request": request, "active_page": "delete"})
 
 
 @app.get("/health")

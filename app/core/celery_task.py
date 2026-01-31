@@ -54,7 +54,7 @@ class MonitoredTask(Task):
         total: Optional[int] = None,
         # style_post用
         style_name: Optional[str] = None,
-        # unpublish用
+        # delete用
         style_number: Optional[int] = None,
         extra: Optional[Dict[str, Any]] = None,
         total_items_override: Optional[int] = None

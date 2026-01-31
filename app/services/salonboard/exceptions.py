@@ -11,8 +11,8 @@ class StylePostError(Exception):
         self.screenshot_path = screenshot_path
 
 
-class StyleUnpublishError(Exception):
-    """非掲載処理専用のエラー"""
+class StyleDeleteError(Exception):
+    """削除処理専用のエラー"""
 
     def __init__(self, message: str, screenshot_path: str = ""):
         super().__init__(message)

@@ -1,18 +1,18 @@
 """
 SALON BOARD 自動化サービスパッケージ
 
-このパッケージはSALON BOARDへのスタイル投稿・非掲載処理を提供します。
+このパッケージはSALON BOARDへのスタイル投稿・削除処理を提供します。
 """
 
-from .exceptions import StylePostError, StyleUnpublishError, RobotDetectionError
+from .exceptions import StylePostError, StyleDeleteError, RobotDetectionError
 from .style_poster import SalonBoardStylePoster, load_selectors
-from .style_unpublisher import SalonBoardStyleUnpublisher
+from .style_deleter import SalonBoardStyleDeleter
 
 __all__ = [
     "StylePostError",
-    "StyleUnpublishError",
+    "StyleDeleteError",
     "RobotDetectionError",
     "SalonBoardStylePoster",
-    "SalonBoardStyleUnpublisher",
+    "SalonBoardStyleDeleter",
     "load_selectors",
 ]
