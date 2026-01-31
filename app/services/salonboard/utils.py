@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from typing import Callable, Dict, Optional
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .exceptions import StylePostError, RobotDetectionError
@@ -51,13 +52,18 @@ class BrowserUtilsMixin:
         jitter_ms: int = 100,
         minimum_ms: int = 50
     ) -> None:
-        """待機処理"""
+        """待機処理（ページが閉じている場合は time.sleep を使用）"""
         if not self.page:
             return
 
         # 単純な待機のみ行う
         sleep_ms = max(minimum_ms, base_ms + self._random.randint(-jitter_ms, jitter_ms))
-        self.page.wait_for_timeout(sleep_ms)
+        try:
+            self.page.wait_for_timeout(sleep_ms)
+        except PlaywrightError:
+            # ページが閉じている等の場合は time.sleep で代替
+            logger.debug("page.wait_for_timeout に失敗したため time.sleep を使用します")
+            time.sleep(sleep_ms / 1000.0)
 
     def _check_robot_detection(self) -> None:
         """
@@ -146,7 +152,7 @@ class BrowserUtilsMixin:
         load_state: str = "domcontentloaded",
     ):
         """
-        クリック＆待機（ページ遷移対応）
+        クリック＆待機（ページ遷移対応、リトライ付き）
 
         Args:
             selector: クリックする要素のセレクタ
@@ -163,16 +169,35 @@ class BrowserUtilsMixin:
             load_timeout,
             load_state,
         )
-        # クリック前に loader_overlay が非表示になるまで待機
-        self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
 
-        self._human_pause()
-        self.page.locator(selector).first.click(timeout=click_timeout)
+        # クリック処理のリトライ対応（オーバーレイ対策）
+        max_click_attempts = 3
+        for click_attempt in range(max_click_attempts):
+            try:
+                # クリック前に loader_overlay が非表示になるまで待機（30秒）
+                overlay_disappeared = self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
+
+                if not overlay_disappeared:
+                    # オーバーレイがまだ表示されている場合は例外をスロー
+                    raise Exception("オーバーレイが30秒間表示され続けています。クリックを中止します")
+
+                self._human_pause()
+                self.page.locator(selector).first.click(timeout=click_timeout)
+                break  # クリック成功
+            except Exception as click_error:
+                if click_attempt < max_click_attempts - 1:
+                    logger.warning("クリック %s 回目で失敗、リトライします: %s", click_attempt + 1, click_error)
+                    self._human_pause(base_ms=1000, jitter_ms=300)
+                    continue
+                else:
+                    # リトライ回数超過
+                    raise
+
         self._human_pause(base_ms=600, jitter_ms=200)
         self.page.wait_for_load_state(load_state, timeout=load_timeout)
 
         # クリック後に loader_overlay が非表示になるまで待機
-        self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+        self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
         self._human_pause(base_ms=800, jitter_ms=250)
         logger.debug("クリック完了: selector=%s", selector)
@@ -232,7 +257,11 @@ class BrowserUtilsMixin:
                 current_url,
                 title,
             )
-            self.page.wait_for_timeout(check_interval_ms)
+            try:
+                self.page.wait_for_timeout(check_interval_ms)
+            except PlaywrightError:
+                time.sleep(check_interval_ms / 1000.0)
+                return False
 
         return False
 
@@ -306,11 +335,15 @@ class BrowserUtilsMixin:
                 )
                 last_log = now
 
-            self.page.wait_for_timeout(poll_ms)
+            try:
+                self.page.wait_for_timeout(poll_ms)
+            except PlaywrightError:
+                time.sleep(poll_ms / 1000.0)
+                raise Exception(f"画像アップロード完了を確認できませんでした (timeout={timeout_ms}ms)")
 
         raise Exception(f"画像アップロード完了を確認できませんでした (timeout={timeout_ms}ms)")
 
-    def _wait_for_loader_overlay_disappeared(self, timeout_ms: int = 30000) -> None:
+    def _wait_for_loader_overlay_disappeared(self, timeout_ms: int = 30000) -> bool:
         """
         loader_overlay が非表示になるまで待機
 
@@ -319,19 +352,22 @@ class BrowserUtilsMixin:
 
         Args:
             timeout_ms: タイムアウト（ミリ秒）
+
+        Returns:
+            bool: オーバーレイが非表示になった場合True、タイムアウトした場合False
         """
         if not self.page:
-            return
+            return True
 
         logger.debug("loader_overlay の非表示を待機します...")
 
         loader_overlay_selector = self.selectors.get("style_form", {}).get("loader_overlay")
         if not loader_overlay_selector:
             logger.debug("loader_overlay セレクタが設定されていません")
-            return
+            return True
 
         deadline = time.monotonic() + (timeout_ms / 1000.0)
-        poll_ms = 500
+        poll_ms = 200
         last_log = 0.0
 
         while time.monotonic() < deadline:
@@ -339,24 +375,30 @@ class BrowserUtilsMixin:
             try:
                 overlay = self.page.locator(loader_overlay_selector)
                 if overlay.count() > 0:
-                    if overlay.first.is_visible(timeout=500):
+                    if overlay.first.is_visible(timeout=200):
                         overlay_visible = True
-            except Exception:
+            except PlaywrightError:
                 pass
 
             if not overlay_visible:
                 logger.debug("loader_overlay が非表示になりました")
-                return
+                return True
 
             now = time.monotonic()
-            if now - last_log > 3.0:
-                logger.debug("loader_overlay がまだ表示されています...")
+            if now - last_log > 2.0:
+                logger.info("loader_overlay がまだ表示されています... 待機中")
                 last_log = now
 
-            self.page.wait_for_timeout(poll_ms)
+            try:
+                self.page.wait_for_timeout(poll_ms)
+            except PlaywrightError:
+                # ページが閉じている等の場合は time.sleep で代替
+                time.sleep(poll_ms / 1000.0)
+                return False  # ページが閉じたので待機終了
 
-        # タイムアウトしても処理を継続（要素が元々存在しない場合もある）
+        # タイムアウト
         logger.warning("loader_overlay の非表示待機がタイムアウトしました (timeout=%sms)", timeout_ms)
+        return False
 
     def _get_error_field_from_exception(self, e: Exception) -> str:
         """

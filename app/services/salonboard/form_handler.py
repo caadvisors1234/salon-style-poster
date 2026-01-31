@@ -109,6 +109,26 @@ class StyleFormHandlerMixin:
         # スペースもハイフンに置換して一貫性を保つ
         return name.lower().replace("/", "-").replace("\\", "-").replace(" ", "-")
 
+    def _wait_for_modal_overlay_hidden(self, form_config: Dict, timeout_ms: int = 5000) -> None:
+        """
+        モーダルオーバーレイが非表示になるまで待機（共通メソッド）
+
+        Args:
+            form_config: フォーム設定
+            timeout_ms: タイムアウト（ミリ秒）
+        """
+        try:
+            self.page.wait_for_selector(
+                form_config["image"]["modal_overlay"],
+                state="hidden",
+                timeout=timeout_ms
+            )
+        except PlaywrightTimeoutError:
+            logger.debug("オーバーレイ待機 timeout、次へ進みます")
+        except Exception:
+            # その他の例外（ページ閉じ等）も無視して進む
+            logger.debug("オーバーレイ待機中に例外発生、次へ進みます")
+
     # 入力処理のリトライ設定
     INPUT_RETRY_MAX_ATTEMPTS = 2
     INPUT_RETRY_DELAY_MS = 2000
@@ -353,6 +373,7 @@ class StyleFormHandlerMixin:
                         "screenshot_path": ""
                     })
                     # モーダルを閉じて返す
+                    self._wait_for_modal_overlay_hidden(form_config)
                     try:
                         self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
                     except Exception:
@@ -379,6 +400,7 @@ class StyleFormHandlerMixin:
                         error_message = "302レスポンス（アクセス集中）"
 
                     # モーダルを閉じて次のリトライへ
+                    self._wait_for_modal_overlay_hidden(form_config)
                     try:
                         self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
                     except Exception:
@@ -478,6 +500,7 @@ class StyleFormHandlerMixin:
                                 error_message = "302レスポンス（アクセス集中）"
 
                             # モーダルを閉じて次のリトライへ
+                            self._wait_for_modal_overlay_hidden(form_config)
                             try:
                                 self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
                             except Exception:
@@ -555,6 +578,7 @@ class StyleFormHandlerMixin:
                             "screenshot_path": ""
                         })
                         # モーダルを閉じて返す
+                        self._wait_for_modal_overlay_hidden(form_config)
                         try:
                             self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
                         except Exception:
@@ -584,7 +608,8 @@ class StyleFormHandlerMixin:
                 # ループ内での例外 - リトライ可能な場合は次のループへ
                 if attempt < self.ACCESS_CONGESTION_MAX_RETRIES:
                     logger.warning("アップロード処理でエラーが発生しました、リトライします: %s", e)
-                    # モーダルを閉じてから次のリトライへ
+                    # オーバーレイが解除されるのを待ってから、モーダルを閉じて次のリトライへ
+                    self._wait_for_modal_overlay_hidden(form_config)
                     try:
                         self.page.wait_for_selector(form_config["image"]["modal_container"], state="hidden", timeout=3000)
                     except Exception:
@@ -609,6 +634,8 @@ class StyleFormHandlerMixin:
 
         # モーダルがまだ開いている場合は閉じる
         try:
+            # オーバーレイが解除されるのを待つ
+            self._wait_for_modal_overlay_hidden(form_config)
             modal = self.page.locator(form_config["image"]["modal_container"])
             if modal.count() > 0 and modal.first.is_visible(timeout=1000):
                 logger.debug("モーダルがまだ表示されているため閉じます")
@@ -819,30 +846,30 @@ class StyleFormHandlerMixin:
                 self._human_pause()
 
                 # クーポン選択ボタンクリック前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 self.page.locator(coupon_config["select_button"]).click(timeout=self.TIMEOUT_CLICK)
 
                 # モーダル表示待機前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 self.page.wait_for_selector(coupon_config["modal_container"], timeout=self.TIMEOUT_WAIT_ELEMENT)
                 self._human_pause(base_ms=720, jitter_ms=240, minimum_ms=400)
 
                 # クーポン選択前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 coupon_selector = coupon_config["item_label_template"].format(name=coupon_name)
                 self.page.locator(coupon_selector).first.click(timeout=self.TIMEOUT_CLICK)
                 self._human_pause(base_ms=640, jitter_ms=220, minimum_ms=350)
 
                 # 設定ボタンクリック前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 self.page.locator(coupon_config["setting_button"]).click(timeout=self.TIMEOUT_CLICK)
 
                 # モーダル非表示待機前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 self.page.wait_for_selector(coupon_config["modal_container"], state="hidden", timeout=self.TIMEOUT_WAIT_ELEMENT)
                 self._human_pause(base_ms=780, jitter_ms=260, minimum_ms=450)
@@ -896,7 +923,7 @@ class StyleFormHandlerMixin:
                 hashtags = re.split(r'[,\s\n、]+', hashtags_str.strip())
 
                 # ハッシュタグ入力前に loader_overlay を待機
-                self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                 for tag in hashtags:
                     tag = tag.strip()
@@ -904,7 +931,7 @@ class StyleFormHandlerMixin:
                         self.page.locator(hashtag_config["input_area"]).fill(tag, timeout=self.TIMEOUT_WAIT_ELEMENT)
 
                         # 追加ボタンクリック前に loader_overlay を待機
-                        self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+                        self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
                         self.page.locator(hashtag_config["add_button"]).click(timeout=self.TIMEOUT_CLICK)
                         self._human_pause(base_ms=650, jitter_ms=210, minimum_ms=350)
@@ -936,12 +963,12 @@ class StyleFormHandlerMixin:
             logger.info("登録ボタンクリック中...")
 
             # 登録ボタンクリック前に loader_overlay を待機
-            self._wait_for_loader_overlay_disappeared(timeout_ms=5000)
+            self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
             self._click_and_wait(form_config["register_button"])
 
             # 完了テキスト待機前に loader_overlay を待機
-            self._wait_for_loader_overlay_disappeared(timeout_ms=10000)
+            self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
 
             self.page.wait_for_selector(form_config["complete_text"], timeout=self.TIMEOUT_LOAD)
             logger.info("登録完了")

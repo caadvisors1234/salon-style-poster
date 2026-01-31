@@ -4,6 +4,7 @@ SALON BOARDスタイル非掲載処理
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set
 
@@ -51,8 +52,9 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
         """
         self.progress_callback = progress_callback
         target_numbers = [n for n in range(range_start, range_end + 1) if n not in exclude_numbers]
-        expected_total = len(target_numbers)
-        processed_numbers: Set[int] = set()
+        total_targets = len(target_numbers)
+        success_count = 0
+        error_count = 0
 
         logger.info(
             "[UNPUBLISH] start user=%s range=%s-%s exclude=%s total=%s",
@@ -60,7 +62,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             range_start,
             range_end,
             sorted(exclude_numbers),
-            expected_total,
+            total_targets,
         )
 
         def emit_progress(
@@ -68,18 +70,16 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             detail: Optional[Dict[str, object]] = None,
             *,
             error: Optional[Dict[str, object]] = None,
-            total_override: Optional[int] = None,
         ) -> None:
             if not self.progress_callback:
                 return
-            total_value = total_override if total_override is not None else expected_total
             if detail is not None:
                 payload = dict(detail)
                 payload.setdefault("current_index", completed)
-                payload.setdefault("total", total_value)
-                self.progress_callback(completed, total_value, detail=payload, error=error)
+                payload.setdefault("total", total_targets)
+                self.progress_callback(completed, total_targets, detail=payload, error=error)
             else:
-                self.progress_callback(completed, total_value, detail=None, error=error)
+                self.progress_callback(completed, total_targets, detail=None, error=error)
 
         try:
             emit_progress(
@@ -90,7 +90,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     "message": "Playwrightを起動しています",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total,
+                    "total": total_targets,
                 },
             )
             self._start_browser()
@@ -102,7 +102,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     "message": "Playwrightの起動が完了しました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total,
+                    "total": total_targets,
                 },
             )
 
@@ -111,10 +111,10 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                 {
                     "stage": "TARGET_READY",
                     "stage_label": "対象件数を確認しました",
-                    "message": f"非掲載対象: {expected_total}件",
+                    "message": f"非掲載対象: {total_targets}件",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total,
+                    "total": total_targets,
                 },
             )
 
@@ -127,7 +127,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     "message": "SALON BOARDへのログインが完了しました",
                     "status": "info",
                     "current_index": 0,
-                    "total": expected_total,
+                    "total": total_targets,
                 },
             )
 
@@ -135,151 +135,181 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             start_page = max(1, math.ceil(range_end / 150))
             self._go_to_style_list_page(start_page)
             current_page = start_page
-            processed = 0
 
-            while processed < expected_total:
+            # 処理対象番号を降順ソート済みの deque として管理（番号ずれ対策、パフォーマンス改善）
+            remaining_targets = deque(
+                sorted(
+                    [n for n in range(range_start, range_end + 1) if n not in exclude_numbers],
+                    reverse=True  # 降順：大きい番号から
+                )
+            )
+
+            while remaining_targets:
+                # 処理対象の最大番号を指定して候補を探す
+                target_number = remaining_targets[0]
+
                 candidates = self._collect_candidates()
                 logger.info(
-                    "[UNPUBLISH] page=%s candidates=%s (target range %s-%s)",
+                    "[UNPUBLISH] page=%s candidates=%s target_number=%s remaining=%s",
                     current_page,
                     len(candidates),
-                    range_start,
-                    range_end,
+                    target_number,
+                    len(remaining_targets),
                 )
-                filtered = [
-                    c
-                    for c in candidates
-                    if range_start <= c.style_number <= range_end and c.style_number not in exclude_numbers
-                ]
 
-                if not filtered:
-                    if current_page > 1:
+                # target_number に一致する候補を探す
+                target = None
+                for c in candidates:
+                    if c.style_number == target_number:
+                        target = c
+                        break
+
+                if target:
+                    # 見つかった場合：処理して次の番号へ
+                    emit_progress(
+                        success_count,
+                        {
+                            "stage": "UNPUBLISH_PROCESSING",
+                            "stage_label": "非掲載処理中",
+                            "message": f"{success_count + 1}/{total_targets}件目: スタイル番号 {target_number} を非掲載中",
+                            "status": "working",
+                            "current_index": success_count + 1,
+                            "total": total_targets,
+                            "style_number": target_number,
+                        },
+                    )
+
+                    try:
+                        self._unpublish_single_row(target, current_page)
+                        # 成功時のみカウントアップ
+                        success_count += 1
+                        remaining_targets.popleft()  # 処理済みを削除
+
                         logger.info(
-                            "[UNPUBLISH] no candidates on page %s, moving to previous page",
-                            current_page,
+                            "[UNPUBLISH] success style_number=%s success=%s/%s total=%s remaining=%s",
+                            target_number,
+                            success_count,
+                            total_targets,
+                            total_targets,
+                            len(remaining_targets),
                         )
+                        emit_progress(
+                            success_count,
+                            {
+                                "stage": "UNPUBLISH_COMPLETED",
+                                "stage_label": "非掲載完了",
+                                "message": f"スタイル番号 {target_number} を非掲載にしました",
+                                "status": "completed",
+                                "current_index": success_count,
+                                "total": total_targets,
+                                "style_number": target_number,
+                            },
+                        )
+                        # 成功時は次の反復へ（_unpublish_single_row内で既に一覧に戻っている）
+                        continue
+
+                    except Exception as exc:
+                        error_count += 1
+                        screenshot_path = ""
+                        if isinstance(exc, StyleUnpublishError):
+                            screenshot_path = exc.screenshot_path
+                        elif isinstance(exc, StylePostError):
+                            screenshot_path = exc.screenshot_path
+                        else:
+                            screenshot_path = self._take_screenshot("unpublish-error")
+
+                        error_payload = {
+                            "row_number": 0,
+                            "style_name": f"番号 {target_number}",
+                            "field": "非掲載",
+                            "reason": str(exc),
+                            "screenshot_path": screenshot_path,
+                        }
+                        # エラー時は success_count をカウントアップせずにエラー報告
+                        emit_progress(
+                            success_count,
+                            {
+                                "stage": "UNPUBLISH_ERROR",
+                                "stage_label": "非掲載エラー",
+                                "message": f"スタイル番号 {target_number} の非掲載に失敗しました。次のスタイルに進みます。",
+                                "status": "error",
+                                "current_index": success_count,
+                                "total": total_targets,
+                                "style_number": target_number,
+                            },
+                            error=error_payload,
+                        )
+                        logger.warning(
+                            "[UNPUBLISH] error style_number=%s, skipping to next target (errors=%s)",
+                            target_number,
+                            error_count,
+                        )
+                        # エラーがあったスタイルはスキップして次へ
+                        remaining_targets.popleft()
+                        # _unpublish_single_row の finally で既に一覧に戻っている
+
+                else:
+                    # target_number が見つからない場合
+                    logger.warning(
+                        "[UNPUBLISH] target_number=%s not found on current page (page=%s)",
+                        target_number,
+                        current_page,
+                    )
+
+                    # 前のページを試す
+                    if current_page > 1:
                         current_page -= 1
                         self._go_to_style_list_page(current_page)
                         continue
-                    logger.warning(
-                        "[UNPUBLISH] no candidates found on first page; processed=%s expected=%s",
-                        processed,
-                        expected_total,
-                    )
-                    break
-
-                # 高い番号から処理してズレの影響を軽減
-                filtered.sort(key=lambda c: c.style_number, reverse=True)
-                target = filtered[0]
-
-                emit_progress(
-                    processed,
-                    {
-                        "stage": "UNPUBLISH_PROCESSING",
-                        "stage_label": "非掲載処理中",
-                        "message": f"{processed + 1}/{expected_total}件目: スタイル番号 {target.style_number} を非掲載中",
-                        "status": "working",
-                        "current_index": processed + 1,
-                        "total": expected_total,
-                        "style_number": target.style_number,
-                    },
-                )
-
-                try:
-                    self._unpublish_single_row(target, current_page)
-                    processed += 1
-                    processed_numbers.add(target.style_number)
-                    logger.info(
-                        "[UNPUBLISH] success style_number=%s processed=%s/%s page=%s",
-                        target.style_number,
-                        processed,
-                        expected_total,
-                        current_page,
-                    )
-                    emit_progress(
-                        processed,
-                        {
-                            "stage": "UNPUBLISH_COMPLETED",
-                            "stage_label": "非掲載完了",
-                            "message": f"スタイル番号 {target.style_number} を非掲載にしました",
-                            "status": "completed",
-                            "current_index": processed,
-                            "total": expected_total,
-                            "style_number": target.style_number,
-                        },
-                    )
-                except Exception as exc:
-                    screenshot_path = ""
-                    if isinstance(exc, StyleUnpublishError):
-                        screenshot_path = exc.screenshot_path
-                    elif isinstance(exc, StylePostError):
-                        screenshot_path = exc.screenshot_path
                     else:
-                        screenshot_path = self._take_screenshot("unpublish-error")
+                        # 最初のページまで探しても見つからない → エラー
+                        emit_progress(
+                            success_count,
+                            {
+                                "stage": "UNPUBLISH_NOT_FOUND",
+                                "stage_label": "未処理のスタイルがあります",
+                                "message": f"スタイル番号 {target_number} を一覧から見つけられませんでした",
+                                "status": "warning",
+                                "current_index": success_count,
+                                "total": total_targets,
+                                "style_number": target_number,
+                            },
+                            error={
+                                "row_number": 0,
+                                "style_name": f"番号 {target_number}",
+                                "field": "非掲載",
+                                "reason": "スタイル一覧に対象番号が見つかりませんでした",
+                                "screenshot_path": self._take_screenshot("unpublish-not-found"),
+                            },
+                        )
+                        raise StyleUnpublishError(
+                            f"スタイル番号 {target_number} が一覧で見つかりませんでした"
+                        )
 
-                    error_payload = {
-                        "row_number": 0,
-                        "style_name": f"番号 {target.style_number}",
-                        "field": "非掲載",
-                        "reason": str(exc),
-                        "screenshot_path": screenshot_path,
-                    }
-                    emit_progress(
-                        processed,
-                        {
-                            "stage": "UNPUBLISH_ERROR",
-                            "stage_label": "非掲載エラー",
-                            "message": f"スタイル番号 {target.style_number} の非掲載に失敗しました",
-                            "status": "error",
-                            "current_index": processed,
-                            "total": expected_total,
-                            "style_number": target.style_number,
-                        },
-                        error=error_payload,
-                    )
-                    # 一覧に戻ってリトライ可能状態にする
-                    self._go_to_style_list_page(current_page)
-
-            remaining_targets = [n for n in target_numbers if n not in processed_numbers]
-            if remaining_targets:
-                logger.warning(
-                    "[UNPUBLISH] missing styles not found on list: %s",
-                    remaining_targets,
-                )
-                for num in remaining_targets:
-                    emit_progress(
-                        processed,
-                        {
-                            "stage": "UNPUBLISH_NOT_FOUND",
-                            "stage_label": "未処理のスタイルがあります",
-                            "message": f"スタイル番号 {num} を一覧から見つけられませんでした",
-                            "status": "warning",
-                            "current_index": processed,
-                            "total": expected_total,
-                            "style_number": num,
-                        },
-                        error={
-                            "row_number": 0,
-                            "style_name": f"番号 {num}",
-                            "field": "非掲載",
-                            "reason": "スタイル一覧に対象番号が見つかりませんでした",
-                            "screenshot_path": "",
-                        },
-                    )
-                raise StyleUnpublishError(
-                    f"非掲載対象のうち {len(remaining_targets)} 件が一覧で見つかりませんでした (例: {remaining_targets[:3]})"
-                )
+            # 最終サマリー：成功件数とエラー件数を明確に表示
+            summary_message = (
+                f"非掲載処理が完了しました: "
+                f"成功 {success_count}件"
+            )
+            if error_count > 0:
+                summary_message += f"、エラー {error_count}件"
 
             emit_progress(
-                processed,
+                success_count,
                 {
                     "stage": "SUMMARY",
                     "stage_label": "処理完了",
-                    "message": f"{processed}件の非掲載処理が完了しました",
-                    "status": "success",
-                    "current_index": processed,
-                    "total": expected_total,
+                    "message": summary_message,
+                    "status": "success" if error_count == 0 else "partial_success",
+                    "current_index": success_count,
+                    "total": total_targets,
                 },
+            )
+            logger.info(
+                "[UNPUBLISH] summary: success=%s error=%s total=%s",
+                success_count,
+                error_count,
+                total_targets,
             )
         finally:
             self._close_browser()
@@ -336,10 +366,12 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
     def _unpublish_single_row(self, candidate: UnpublishCandidate, current_page: int) -> None:
         """単一行の非掲載ボタンをクリックし、完了画面から一覧へ戻す"""
         complete_selector = self.selectors["style_list"]["unpublish_complete_text"]
+        back_button_selector = self.selectors["style_form"]["back_to_list_button"]
         last_error: Exception | None = None
 
         for attempt in range(1, 4):
             dialog_handled = False
+            navigated_back = False
 
             def _handle_dialog(dialog):
                 nonlocal dialog_handled
@@ -349,6 +381,7 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
             self.page.once("dialog", _handle_dialog)
 
             try:
+                # 1. 非掲載ボタンクリック（ダイアログ表示）
                 try:
                     with self.page.expect_navigation(wait_until="domcontentloaded", timeout=self.TIMEOUT_LOAD):
                         candidate.click_target.click(timeout=self.TIMEOUT_CLICK)
@@ -356,21 +389,58 @@ class SalonBoardStyleUnpublisher(SalonBoardStylePoster):
                     # ナビゲーションが発生しない場合もあるため、そのまま進める
                     pass
 
+                self._human_pause(base_ms=500, jitter_ms=200, minimum_ms=300)
+
+                # 2. 完了画面の表示を待機
                 try:
                     self.page.wait_for_selector(complete_selector, timeout=self.TIMEOUT_LOAD)
                 except PlaywrightTimeoutError:
-                    self.page.wait_for_timeout(1500)
+                    # 完了テキストが見つからない場合は少し待って進める
+                    self.page.wait_for_timeout(1000)
 
-                self._human_pause(base_ms=1000, jitter_ms=400, minimum_ms=700)
-                return
+                # 3. loader_overlay が非表示になるまで待機（クリック対策）
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
+
+                self._human_pause(base_ms=800, jitter_ms=300, minimum_ms=500)
+
+                # 4. 「スタイル掲載情報一覧画面へ」ボタンをクリックして一覧に戻る
+                try:
+                    with self.page.expect_navigation(wait_until="domcontentloaded", timeout=self.TIMEOUT_LOAD):
+                        self.page.locator(back_button_selector).first.click(timeout=self.TIMEOUT_CLICK)
+                    navigated_back = True
+                except PlaywrightTimeoutError:
+                    # ナビゲーションが検知されない場合でも、ボタンクリック自体は成功している可能性がある
+                    navigated_back = True
+
+                # 5. 一覧画面の読み込み完了を待機
+                self.page.wait_for_load_state("domcontentloaded", timeout=self.TIMEOUT_LOAD)
+
+                # 6. loader_overlay が非表示になるまで待機
+                self._wait_for_loader_overlay_disappeared(timeout_ms=30000)
+
+                self._human_pause(base_ms=600, jitter_ms=250, minimum_ms=400)
+
+                # 成功時のみリトライループを抜けて終了
+                if navigated_back:
+                    return
+
             except Exception as exc:
                 last_error = exc
-                self._human_pause(base_ms=3000, jitter_ms=500, minimum_ms=2500)
-            finally:
-                self._go_to_style_list_page(current_page)
-                if not dialog_handled:
-                    self._human_pause(base_ms=500, jitter_ms=200, minimum_ms=300)
+                logger.warning(
+                    "[UNPUBLISH] attempt=%s failed: %s",
+                    attempt,
+                    exc,
+                )
+                self._human_pause(base_ms=2000, jitter_ms=500, minimum_ms=1500)
 
+                # エラー時は確実に一覧に戻ることを試みる
+                if not navigated_back:
+                    try:
+                        self._go_to_style_list_page(current_page)
+                    except Exception as e:
+                        logger.warning("[UNPUBLISH] failed to return to list: %s", e)
+
+        # リトライ上限到達
         raise StyleUnpublishError(
             f"非掲載操作に失敗しました（リトライ上限到達）: {last_error}",
             self._take_screenshot("unpublish-failed"),

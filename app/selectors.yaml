@@ -28,6 +28,7 @@ style_form:
   image:
     upload_area: "#FRONT_IMG_ID_IMG"
     modal_container: ".imageUploaderModalContainer"
+    modal_overlay: ".imageUploaderOverlay.jscImageUploaderOverlay"
     file_input: "input#formFile"
     submit_button_active: "input.imageUploaderModalSubmitButton.isActive"
   # フォーム項目
